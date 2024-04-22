@@ -6,7 +6,7 @@ import torch.multiprocessing as mp
 import torch
 import torch.nn as nn
 from graph_tracer import compile, SEPFunction
-from graph_prof import GraphProfiler
+from graph_prof import GraphProfiler, OP
 import torch.fx as fx
 
 # This is the dummy model that is for use in starter code. But we will
@@ -23,6 +23,7 @@ class DummyModel(nn.Module):
 
     def forward(self, x):
         return self.mod(x)
+
 
 # Anymodel that is used will be wrapped with this model. We do this to call a
 # dummy function 'SEPFunction', which is the separator function, that will call
@@ -66,24 +67,18 @@ def train_step(
 
 def graph_transformation(gm: fx.GraphModule, args: Any) -> fx.GraphModule:
     # print(gm.graph)
-    import json
+
+    for node in gm.graph.nodes:
+        if len(node.users)==0 and node.op not in [OP.PLACEHOLDER, OP.OUTPUT]:
+            gm.graph.erase_node(node)
+    gm.graph.eliminate_dead_code()
+    gm.graph.lint()
+    gm.recompile()
+
     graph_profiler = GraphProfiler(gm)
     with torch.no_grad():
         graph_profiler.run(*args)
 
-    # json.dump(graph_profiler.swap_time, "starter_swap_time.json")
-    # json.dump(graph_profiler.compute_times, "starter_compute_times.json")
-    # json.dump(graph_profiler.memory_usages, "starter_memory_usages.json")
-    
-    with open("dummy_swap_time", "w") as json_file:
-        json.dump(graph_profiler.swap_time, json_file, indent = 4)
-
-    with open("dummy_compute_time", "w") as json_file:
-        json.dump(graph_profiler.compute_times, json_file, indent = 4)
-
-    with open("dummy_memory_usage", "w") as json_file:
-        json.dump(graph_profiler.memory_usages, json_file, indent = 4)
-    
     return gm
 
 

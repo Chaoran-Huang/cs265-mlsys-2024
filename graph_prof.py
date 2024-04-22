@@ -4,6 +4,9 @@ import torch
 import torch.fx as fx
 from typing import Dict, Any
 
+import json
+import gc
+
 
 class OP(str, Enum):
     CALL_FUNCTION = "call_function"
@@ -21,6 +24,7 @@ class OP(str, Enum):
 class GraphProfiler(fx.Interpreter):
     def __init__(self, module: fx.GraphModule, garbage_collect_values: bool = True):
         super().__init__(module, garbage_collect_values)
+
         # You should perform the static analysis of the graph here. In
         # particular you might want to find the intermediate
         # nodes/activations/feature_maps in the graph that will be defined as
@@ -53,191 +57,176 @@ class GraphProfiler(fx.Interpreter):
         # backward pass. 
 
         # Printing the input nodes, node users and node names.
-        self.intermediate_nodes = {}
-        self._analyze_graph()
-        self.in_backward_pass = False
-        
-        # Fix:
-        
-        # for node in self.intermediate_nodes:
-        #     print("Node name:", node)
-        #     print(self.intermediate_nodes[node])
-        # print(len(self.intermediate_nodes))
-
-        self.compute_times = []
-        self.memory_usages = []
-        self.swap_time = []
 
         # for node in self.module.graph.nodes:
+        #     print("Node name: ", node.name)
+        #     print("Node type: ", node.op)
+        #     print("Node target: ", node.target)
+        #     print("Input to this node", node.all_input_nodes)
+        #     print("Users of this node: ", node.users)
+        #     print()
 
+        # Each key is a node; each value indicates whether that node's output is a
+        # 'parameter', 'activation', 'gradient', 'optimzer_state', or 'other'
+        self.node_types = {}
+        # Nodes that are candidates for being activations:
+        # created in forward pass and are not parameters, but not have yet
+        # confirmed whether the nodes appear in backward pass
+        activation_candidates = set()
+        # Nodes that are confirmed to be activations
+        activations = set()
+        # Keeps track of state in the following loop,
+        # indicating 'forward' pass, 'backward' pass, or 'neither'
+        cur_pass = 'forward'
+        # Loop through all nodes in order
+        for node in self.module.graph.nodes:
+            # 'sep' node indicates end of forward pass
+            if node.name == 'sep':
+                cur_pass = 'neither'
+                self.node_types[node] = 'other'
+            # 'sep_backward' node indicates start of backward pass
+            elif node.name == 'sep_backward':
+                cur_pass = 'backward'
+                self.node_types[node] = 'other'
+            # Node is between forward and backward passes
+            elif cur_pass == 'neither':
+                self.node_types[node] = 'other'
+            # Forward pass
+            elif cur_pass == 'forward':
+                # Node has no inputs -> node is a parameter
+                if not node.all_input_nodes:
+                    self.node_types[node] = 'parameter'
+                # Not a parameter -> could be an activation
+                else:
+                    activation_candidates.add(node)
+            # Backward pass
+            elif cur_pass == 'backward':
+                # Node is tagged as gradient; i.e., the next node is the dummy gradient tag
+                if node.next.target == torch.ops.dummy.tag_grad.default:
+                    self.node_types[node] = 'gradient'
+                # TODO: handle 'optimizer_state'
+                else:
+                    self.node_types[node] = 'other'
+                # If some node `n` used by this backward-pass node is an activation candidate,
+                # we conclude `n` is indeed an activation
+                for n in node.all_input_nodes:
+                    if n in activation_candidates:
+                        self.node_types[n] = 'activation'
+                        activation_candidates.remove(n)
+                        activations.add(n)
+        # Activation candidates that turned out not be activations are classified as 'other'
+        for n in activation_candidates:
+            self.node_types[n] = 'other'
+
+        # Each key is an activation node, each value is a 2-item list containing
+        # [last node in forward pass that uses the key,
+        #  first node in backward pass that uses the key]
+        self.activation_unused_range = {}
+        # True during forward pass of the following loop, False during backward pass
+        is_forward_pass = True
+        # Loop through all nodes in order
+        for node in self.module.graph.nodes:
+            if node.name == 'sep_backward':
+                is_forward_pass = False
+            for n in node.all_input_nodes:
+                # Identify all activation nodes `n` used by `node`
+                if n in activations:
+                    # In forward pass, overwrite as much as needed so that
+                    # the last occurrence is recorded
+                    if is_forward_pass:
+                        self.activation_unused_range[n] = [node, None]
+                    # In backward pass, write only once so that
+                    # the first occurrence is recorded
+                    elif self.activation_unused_range[n][1] is None:
+                        self.activation_unused_range[n][1] = node
+            # In forward pass, last occurrence of activation may be the moment it is created
+            if is_forward_pass and node in activations:
+                self.activation_unused_range[node] = [node, None]
         
-        # print ("Node name: ", self.backward_boundary_node.name)
-        # print ("Node type: ", self.backward_boundary_node.op)
-        # print ("Node target: ", self.backward_boundary_node.target)
-        # print ("Input to this node", self.backward_boundary_node.all_input_nodes)
-        # print ("Users of this node: ", self.backward_boundary_node.users)
+        # `forward_last_users[k] = [v1, v2, ...]` indicates that node `k` is
+        # the last node in the forward pass to use the activation nodes `v1`, `v2`, ...
+        self.forward_last_users = {}
+        # `backward_first_users[k] = [v1, v2, ...]` indicates that node `k` is
+        # the first node in the backward pass to use the activation nodes `v1`, `v2`, ...
+        self.backward_first_users = {}
+        for activation_node, (forward_last, backward_first) in self.activation_unused_range.items():
+            if forward_last not in self.forward_last_users:
+                self.forward_last_users[forward_last] = []
+            if backward_first not in self.backward_first_users:
+                self.backward_first_users[backward_first] = []
+            self.forward_last_users[forward_last].append(activation_node)
+            self.backward_first_users[backward_first].append(activation_node)
 
-
-    def _analyze_graph(self):
-        seen_backward = False
-        forward_nodes = set()
-        node_usage = {}
-        # Iterate through nodes to find forward and backward boundary nodes
-        for node in self.module.graph.nodes:
-            if node.op == "call_function" and node.name == 'sep':
-                seen_backward = None
-            elif node.op == "call_function" and node.name == 'sep_backward':
-                seen_backward = True
-                break
-
-        for node in self.module.graph.nodes:
-            if node.op == "call_function" and node.name == 'sep':
-                break;
-            forward_nodes.add(node);
-
-        seen_backward = False
-        for node in self.module.graph.nodes:
-
-            if node.op == "call_function" and node.name == 'sep_backward':
-                seen_backward = True
-
-            if seen_backward:
-                for input_node in node.all_input_nodes:
-                    if input_node in forward_nodes and input_node.op != "placeholder":
-                        node_usage[input_node.name] = {
-                            'first_fw_access': None,
-                            'last_fw_access': None,
-                            'first_bw_access': None,
-                            'last_bw_access': None
-                        }
+        # Save information for use in analysis
+        self.stats = {}
         
-        seen_backward = False
-        # for intermediate_node in node_usage.keys():
-            
-        for node in self.module.graph.nodes:
-            if seen_backward == False:
-                for input_node in node.all_input_nodes:
-                    if input_node.name in node_usage:
-                        if node_usage[input_node.name]['first_fw_access'] is None:
-                            node_usage[input_node.name]['first_fw_access'] = node.name
-                        node_usage[input_node.name]['last_fw_access'] = node.name
-            if node.op == "call_function" and node.name == 'sep':
-                seen_backward = None
-            if node.op == "call_function" and node.name == 'sep_backward':
-                seen_backward = True
-            if seen_backward:
-                for input_node in node.all_input_nodes:
-                    if input_node.name in node_usage:
-                        if node_usage[input_node.name]['first_bw_access'] is None:
-                            node_usage[input_node.name]['first_bw_access'] = node.name
-                        node_usage[input_node.name]['last_bw_access'] = node.name
-                        
-        # Fix
-        
-        # for node in node_usage:
-        #     print("Node name: ", node)
-        #     print(node_usage[node])
-            
+        # True during forward pass, False during backward pass
+        # Keeps track of state inside `run_node()`
+        self.is_forward_pass = True
 
-        # From tensor_usage get last_fw_uses and first_bw_uses
-
-        for node in self.module.graph.nodes:
-            fw_uses = set()
-            bw_uses = set()
-            for access in node_usage.keys():
-                if node.name == node_usage[access]['last_fw_access']:
-                    fw_uses.add(access)
-                if node.name == node_usage[access]['first_bw_access']:
-                    bw_uses.add(access)
-
-                if len(fw_uses) != 0 or len(bw_uses) != 0:
-                    self.intermediate_nodes[node.name] = {'last_fw_uses': fw_uses,
-                                                'first_bw_uses': bw_uses}
-
-
-    
     def run(
         self,
         *args,
         initial_env: Dict[fx.Node, Any] | None = None,
         enable_io_processing: bool = True
     ) -> torch.Any:
-        return super().run(
+        ret = super().run(
             *args, initial_env=initial_env, enable_io_processing=enable_io_processing
         )
+        with open('stats.json', 'w') as f:
+            json.dump(self.stats, f)
+        peak_mem = max(v['memory'] for v in self.stats.values())
+        print(peak_mem)
+        return ret
 
     def run_node(self, n: fx.Node) -> Any:
+
+        # End of forward pass
+        if n.name == 'sep':
+            self.is_forward_pass = False
 
         # If you are in the backward pass region and one of the feature maps 'x'
         # was swapped out, and if node 'n' will use this feature map 'x' as one
         # of its inputs then you swap 'x' back to the GPU memory here.
+        if not self.is_forward_pass and n in self.backward_first_users:
+            for x in self.backward_first_users[n]:
+                self.env[x] = self.env[x].cuda()
 
-        # self.env[n] : tensor
-        if n.op == "call_function" and n.name == 'sep_backward':
-            self.in_backward_pass = True
-
-        if self.in_backward_pass:
-            for input_name in n.all_input_nodes:
-                if self.intermediate_nodes.get(input_name.name):
-                   if n.name in self.intermediate_nodes[input_name.name]['first_bw_uses']:
-                       # swap in/out
-                       swap_start = torch.cuda.Event(enable_timing=True)
-                       swap_end = torch.cuda.Event(enable_timing=True)
-                       swap_start.record()
-                       
-                       temp = self.env.get(n)
-                       if torch.is_tensor(temp):
-                           self.env[n] = temp.device(torch.device('cuda:0'))
-                           del temp
-                       swap_end.record()
-                       torch.cuda.synchronize()
-                       self.swap_time.append({"node": n.name, "transfer": "CPU -> GPU", "time" : swap_start.elapsed_time(swap_end)})
-
+        # Prepare to measure GPU memory usage
+        torch.cuda.reset_peak_memory_stats(device=None)
+        
         # you can start measuring the run-time of a node here
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
-        start_memory = torch.cuda.memory_allocated()
+        start_time = torch.cuda.Event(enable_timing=True)
+        end_time = torch.cuda.Event(enable_timing=True)
+        start_time.record()
 
-        # Run the node
         result = super().run_node(n)
 
-        # End timing and memory tracking
-        end_event.record()
-        torch.cuda.synchronize()  # Ensure timing is accurate
-        end_memory = torch.cuda.memory_allocated()
-
-        # Record compute time and memory usage
-        self.compute_times.append({"node": n.name, "time" : start_event.elapsed_time(end_event)})
-        self.memory_usages.append({"node": n.name, "time" : end_memory})
-
-        
         # you can end measuring the run-time of a node here
         # HINT: Use torch.cuda.Events for doing time measurements of operations.
-
+        end_time.record()
+        torch.cuda.synchronize()
+        
+        # Info for analysis
+        self.stats[n.name] = {
+            'type': self.node_types[n],
+            'time': start_time.elapsed_time(end_time),
+            'memory': torch.cuda.max_memory_allocated()
+        }
+        if self.node_types[n] == 'activation':
+            activation_unused_range = [node.name for node in self.activation_unused_range[n]]
+            self.stats[n.name]['activation_unused_range'] = activation_unused_range
 
         # If you are in the forward pass region and if the current node 'n' is
         # the last user of a feature map 'x', then it should be swapped out to
         # the CPU memory here.
+        if self.is_forward_pass and n in self.forward_last_users:
+            for x in self.forward_last_users[n]:
+                if x == n:
+                    # `x` is the node currently being run
+                    result = result.cpu()
+                else:
+                    # `x` is a previously-run node
+                    self.env[x] = self.env[x].cpu()
         
-        if not self.in_backward_pass:
-            for user in n.users:
-                if self.intermediate_nodes.get(user.name):
-                    if n.name in self.intermediate_nodes[user.name]['last_fw_uses']:
-                        
-                        swap_start = torch.cuda.Event(enable_timing=True)
-                        swap_end = torch.cuda.Event(enable_timing=True)
-                        swap_start.record()
-                        
-                        temp = self.env.get(n)
-                        if torch.is_tensor(temp):
-                            self.env[n] = temp.device(torch.device('cpu'))
-                            del temp
-
-                        swap_end.record()
-                        torch.cuda.synchronize()
-                        self.swap_time.append({"node": n.name, "transfer": "GPU -> CPU", "time": swap_start.elapsed_time(swap_end)})
-        
-        
-         
         return result

@@ -6,8 +6,8 @@ import torch
 import torch.optim as optim
 import importlib
 from graph_tracer import SEPFunction, compile
-import torch.fx as fx
-from graph_prof import GraphProfiler
+from starter_code import graph_transformation
+import sys
 
 model_names: List[str] = [
     "torchbenchmark.models.hf_Bert.Model",
@@ -22,9 +22,9 @@ actual_model_names: List[str] = [
 ]
 
 model_batch_sizes: Dict[str, int] = {
-    "torchbenchmark.models.hf_Bert.Model": 16,
-    "torchbenchmark.models.resnet50.Model": 128,
-    "torchbenchmark.models.resnet152.Model": 32,
+    "torchbenchmark.models.hf_Bert.Model": 32,
+    "torchbenchmark.models.resnet50.Model": 256,
+    "torchbenchmark.models.resnet152.Model": 64,
 }
 
 class Experiment:
@@ -75,29 +75,15 @@ class Experiment:
     def run(self):
         self.train_step(self.model, self.optimizer, self.example_inputs)
         print("Successful.")
-
-def graph_transformation(gm: fx.GraphModule, args: Any) -> fx.GraphModule:
-    # print(gm.graph)
-    import json
-    graph_profiler = GraphProfiler(gm)
-    with torch.no_grad():
-        graph_profiler.run(*args)
-
-    with open("hf_Bert_swap_time_x", "w") as json_file:
-        json.dump(graph_profiler.swap_time, json_file, indent = 4)
-
-    with open("hf_Bert_compute_time_x", "w") as json_file:
-        json.dump(graph_profiler.compute_times, json_file, indent = 4)
-
-    with open("hf_Bert_memory_usage_x", "w") as json_file:
-        json.dump(graph_profiler.memory_usages, json_file, indent = 4)
         
-    return gm
 
 if __name__ == "__main__":
 
-    exp = Experiment(model_names[0], model_batch_sizes[model_names[0]])
+    model_idx = int(sys.argv[1])
+    batch_size = int(sys.argv[2])
+    exp = Experiment(model_names[model_idx], batch_size)
     # exp.run()
+    # compiled_fn = compile(exp.train_step, lambda x, y : x)
     compiled_fn = compile(exp.train_step, graph_transformation)
     compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
 

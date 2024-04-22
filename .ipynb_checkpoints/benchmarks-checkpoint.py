@@ -6,6 +6,8 @@ import torch
 import torch.optim as optim
 import importlib
 from graph_tracer import SEPFunction, compile
+from starter_code import graph_transformation
+import sys
 
 model_names: List[str] = [
     "torchbenchmark.models.hf_Bert.Model",
@@ -73,20 +75,15 @@ class Experiment:
     def run(self):
         self.train_step(self.model, self.optimizer, self.example_inputs)
         print("Successful.")
-
-def graph_transformation(gm: fx.GraphModule, args: Any) -> fx.GraphModule:
-    print(gm.graph)
-
-    graph_profiler = GraphProfiler(gm)
-    with torch.no_grad():
-        graph_profiler.run(*args)
-
-    return gm
+        
 
 if __name__ == "__main__":
 
-    exp = Experiment(model_names[0], model_batch_sizes[model_names[0]])
+    model_idx = int(sys.argv[1])
+    batch_size = int(sys.argv[2])
+    exp = Experiment(model_names[model_idx], batch_size)
     # exp.run()
+    # compiled_fn = compile(exp.train_step, lambda x, y : x)
     compiled_fn = compile(exp.train_step, graph_transformation)
     compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
 
