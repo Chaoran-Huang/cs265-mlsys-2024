@@ -34,7 +34,11 @@ class NodeType(Enum):
 
 class MemStats:
     def __init__(
-        self, param_and_opt_state_mem: int, grad_mem: int, act_mem: int, other_mem: int
+        self,
+        param_and_opt_state_mem: int,
+        grad_mem: int,
+        act_mem: int,
+        other_mem: int,
     ) -> None:
         self.param_and_opt_state_memory = param_and_opt_state_mem
         self.grad_memory = grad_mem
@@ -64,7 +68,9 @@ class NodeInfo:
 
 
 class GraphProfiler(fx.Interpreter):
-    def __init__(self, module: fx.GraphModule, garbage_collect_values: bool = True):
+    def __init__(
+        self, module: fx.GraphModule, garbage_collect_values: bool = True
+    ):
         super().__init__(module, garbage_collect_values)
 
         self.module = module
@@ -77,7 +83,6 @@ class GraphProfiler(fx.Interpreter):
         self.swapped_memory: int = 0
         self.param_and_opt_state_memory: int
 
-        print(self.module.graph)
         rank = 0
         for node in self.module.graph.nodes:
             n_info = NodeInfo()
@@ -87,7 +92,10 @@ class GraphProfiler(fx.Interpreter):
             rank += 1
             self.node_info[node] = n_info
             # Find the forward end and backward start dummy nodes
-            if node.name == "sep" and node.target == torch.ops.separator.sep.default:
+            if (
+                node.name == "sep"
+                and node.target == torch.ops.separator.sep.default
+            ):
                 self.forward_end = node
             elif (
                 node.name == "sep_backward"
@@ -123,8 +131,17 @@ class GraphProfiler(fx.Interpreter):
         for node in self.module.graph.nodes:
             if (
                 node.op != OP.PLACEHOLDER
-                and self.node_info[node].rank < self.node_info[self.forward_end].rank
+                and self.node_info[node].rank
+                < self.node_info[self.forward_end].rank
             ):
+                input_nodes: List[fx.Node] = node.all_input_nodes
+                input_nodes_op: List[bool] = [
+                    self.node_info[n].node_type == NodeType.PARAM
+                    for n in input_nodes
+                ]
+                if all(input_nodes_op):
+                    self.node_info[node].node_type = NodeType.PARAM
+                    continue
                 users = node.users
                 # from the users we get the last forward use
                 # and the first backward use using ranks
@@ -238,7 +255,9 @@ class GraphProfiler(fx.Interpreter):
                 act_mem += memory_size
             else:
                 other_mem += memory_size
-        mem_stats = MemStats(param_and_opt_state_mem, grad_mem, act_mem, other_mem)
+        mem_stats = MemStats(
+            param_and_opt_state_mem, grad_mem, act_mem, other_mem
+        )
         return mem_stats
 
     def run(
@@ -249,7 +268,9 @@ class GraphProfiler(fx.Interpreter):
     ) -> torch.Any:
         self.param_and_opt_state_memory = torch.cuda.memory_allocated()
         return super().run(
-            *args, initial_env=initial_env, enable_io_processing=enable_io_processing
+            *args,
+            initial_env=initial_env,
+            enable_io_processing=enable_io_processing,
         )
 
     def run_node(self, node: fx.Node) -> Any:
@@ -304,7 +325,9 @@ class GraphProfiler(fx.Interpreter):
             self.node_info[node].run_time = mean(self.node_runtimes[node])
 
             if node in self.intermediate_nodes:
-                self.node_info[node].swap_time = mean(self.node_swap_times[node])
+                self.node_info[node].swap_time = mean(
+                    self.node_swap_times[node]
+                )
 
     def reset_stats(self):
         self.node_runtimes.clear()
