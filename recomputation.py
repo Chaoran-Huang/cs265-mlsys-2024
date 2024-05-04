@@ -15,5 +15,21 @@ class Recomputation:
         self.recompute_ratio = 0
 
 
-    def get_recomputation_nodes(self):
-        return "imported"
+    def recomputation_policy(self, candidate_set, mem_limit, max_peak_memory):
+
+        mem_comsumption = max_peak_memory
+        initialization(candidate_set)
+        recomps = set()
+
+        while len(candidate_set) != 0:
+            r_cand = max_recomp_candidate(candidate_set)
+            recomps.add(r_cand)
+            cand = r_cand
+            candidates.remove(cand)
+            recomp_cnt = update_recomps(cand, recomps)
+            update_candidates(cand, recomp_cnt, candidates)
+            mem_consumption -= cand.memory_size
+            if (mem_consumption - mem_limit) <= 0:
+                break
+
+        
