@@ -64,7 +64,7 @@ class Recomputation:
     def update_existing_recomputatuions(self, cand, recomps):
         recomp_cnt = 1
         for rp in recomps:
-            rp.recomp_srcs.remove(cand)
+            rp.recomp_srcs.remove(cand.node)
             rp.recomp_srcs.add(cand.recomp_srcs)
             rp.recomp_time += cand.recomp_time
             recomp_cnt += 1
@@ -73,7 +73,7 @@ class Recomputation:
     def update_candidates(self, recomps, t, recomp_cnt, candidates):
         for cand in candidates:
             if t in cand.recomp_srcs:
-                cand.recomp_srcs.remove(t)
+                cand.recomp_srcs.remove(t.node)
                 cand.recomp_srcs.add(t.recomp_srcs)
                 cand.total_recomp_time = cand.recomp_time
                 for rp in recomps:
