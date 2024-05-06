@@ -88,7 +88,7 @@ def activation_checkpointing(gm: fx.GraphModule, node_info: Dict[fx.Node, NodeIn
         first_back_access = node_info[rp.node].first_back_access
         node_to_recompute = [rp.node]
         node_to_recompute_names = [rp.node.name]
-        nodes_required_to_recompute = [src.node for src in rp.recomp_srcs]
+        nodes_required_to_recompute = [src for src in rp.recomp_srcs]
 
         # NOTE: we cannot directly use 'mm' to recompute 'relu' since 'mm' is not an
         # intermediate node that is retained (checkpointed).
