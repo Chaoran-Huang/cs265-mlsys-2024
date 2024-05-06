@@ -14,6 +14,11 @@ class Candidate:
         self.total_recomp_time = total_recomp_time
         self.recompute_ratio = recompute_ratio
 
+    def __repr__(self):
+        return (f"Candidate(node={self.node}, memory_size={self.memory_size}, "
+                f"recomp_srcs={self.recomp_srcs}, recomp_graph={self.recomp_graph}, "
+                f"recomp_cnt={self.recomp_cnt}, recomp_time={self.recomp_time}, "
+                f"total_recomp_time={self.total_recomp_time}, recompute_ratio={self.recompute_ratio})")
 
 class Recomputation:
     def __init__(self, node_info, intermediate_nodes):
