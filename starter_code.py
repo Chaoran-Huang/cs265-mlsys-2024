@@ -5,9 +5,13 @@ from typing import Any
 import torch.multiprocessing as mp
 import torch
 import torch.nn as nn
+
+from activation_checkpoint import activation_checkpointing
 from graph_tracer import compile, SEPFunction
 from graph_prof import GraphProfiler, OP
 import torch.fx as fx
+import recomputation
+
 
 # This is the dummy model that is for use in starter code. But we will
 # experiment with Resnet and Bert models from Torch Benchmark suite.
@@ -48,7 +52,7 @@ class WrappedDummyModel(nn.Module):
 
 
 def train_step(
-    model: torch.nn.Module, optim: torch.optim.Optimizer, batch: torch.Tensor
+        model: torch.nn.Module, optim: torch.optim.Optimizer, batch: torch.Tensor
 ):
     out: torch.Tensor = model(batch)
     out.sum().backward()
@@ -79,7 +83,15 @@ def graph_transformation(gm: fx.GraphModule, args: Any) -> fx.GraphModule:
     with torch.no_grad():
         graph_profiler.run(*args)
 
-    return gm
+    recomputation_node = recomputation.Recomputation(
+        node_info=graph_profiler.node_info, intermediate_nodes=graph_profiler.intermediate_nodes)
+
+    recomps = recomputation_node.recomputation_policy(mem_limit=torch.cuda.get_device_properties(0).total_memory / 2,
+                                                      max_peak_memory=torch.cuda.get_device_properties(
+                                                          0).total_memory + graph_profiler.swapped_memory)
+
+    new_graph_module = activation_checkpointing(gm, graph_profiler.node_info, recomps)
+    return new_graph_module
 
 
 # We first initialize the model, pass it to the wrapper model, then create a
