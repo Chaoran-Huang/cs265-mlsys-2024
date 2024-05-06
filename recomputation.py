@@ -23,14 +23,14 @@ class Recomputation:
         self.intermediate_nodes: List[fx.Node] = intermediate_nodes
         self.candidate_set: Set[Candidate] = {Candidate(node=n) for n in intermediate_nodes}
 
-    def recomputation_policy(self, candidate_set, mem_limit, max_peak_memory):
+    def recomputation_policy(self, mem_limit, max_peak_memory):
 
         mem_consumption = max_peak_memory
         self.initialization()
         recomps = set()
 
-        while len(candidate_set) != 0:
-            r_cand = self.max_recomp_candidate(candidate_set)
+        while len(self.candidate_set) != 0:
+            r_cand = self.max_recomp_candidate(self.candidate_set)
             recomps.add(r_cand)
             cand = r_cand
             self.candidate_set.remove(cand)
@@ -39,12 +39,12 @@ class Recomputation:
             mem_consumption -= cand.memory_size
             if (mem_consumption - mem_limit) <= 0:
                 break
+        return recomps
 
     def initialization(self):
         for cand in self.candidate_set:
-            recomp_srcs, recomp_time = self.find_srcs(cand.node, 0, dict()).items()
-            cand.recomp_srcs = set(recomp_srcs)
-            cand.recomp_time = sum(recomp_time)
+            cand.recomp_srcs = self.find_srcs(cand.node, set())
+            cand.recomp_time = sum([self.node_info[src].run_time for src in cand.recomp_srcs])
 
             cand.total_recomp_time = cand.recomp_time
             cand.recompute_ratio = float(
@@ -84,20 +84,14 @@ class Recomputation:
 
         if cand in t.recomp_srcs:
             cand.total_recomp_time = recomp_cnt * cand.recomp_time
-        # TODO: update_recompute_ratio
         self.update_recompute_ratio(candidates)
 
-    def find_srcs(self, node: fx.Node, path_runtime, srcs: Dict[fx.Node, float]):
-        # compute the time and source recursively
-        if node in srcs.keys():
-            return srcs
-
+    def find_srcs(self, node: fx.Node, srcs: Set[fx.Node]):
+        # compute the source recursively
         input_nodes: List[fx.Node] = node.all_input_nodes
-
         for input_node in input_nodes:
-            comp_time = self.node_info[input_node].run_time
             if (input_node.op == "placeholder") or (input_node in self.intermediate_nodes):
-                srcs[input_node] += (comp_time + path_runtime)
+                srcs.add(input_node)
             else:
-                self.find_srcs(input_node, comp_time, srcs)
+                self.find_srcs(input_node, srcs)
         return srcs
