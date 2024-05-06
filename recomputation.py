@@ -1,27 +1,25 @@
-import torch
 import torch.fx as fx
 from typing import Dict, Any, List, cast, Set
 from graph_prof import NodeInfo
-from dataclasses import dataclass, field
 
 
-@dataclass
 class Candidate:
-    node: fx.Node = None
-    memory_size: int = 0
-    recomp_srcs: set = None
-    recomp_graph: fx.GraphModule = None
-    recomp_cnt: float = 0.0
-    recomp_time: float = 0.0
-    total_recomp_time: float = 0.0
-    recompute_ratio: float = 0.0
+    def __init__(self, node=None, memory_size=0, recomp_srcs=None, recomp_graph=None, recomp_cnt=0.0, recomp_time=0.0, total_recomp_time=0.0, recompute_ratio=0.0):
+        self.node = node
+        self.memory_size = memory_size
+        self.recomp_srcs = recomp_srcs if recomp_srcs is not None else set()
+        self.recomp_graph = recomp_graph
+        self.recomp_cnt = recomp_cnt
+        self.recomp_time = recomp_time
+        self.total_recomp_time = total_recomp_time
+        self.recompute_ratio = recompute_ratio
 
 
 class Recomputation:
     def __init__(self, node_info, intermediate_nodes):
         self.node_info: Dict[fx.Node, NodeInfo] = node_info
         self.intermediate_nodes: List[fx.Node] = intermediate_nodes
-        self.candidate_set: List[Candidate] = [Candidate(node=n) for n in set(intermediate_nodes)]
+        self.candidate_set: Set[Candidate] = {Candidate(node=n) for n in set(intermediate_nodes)}
 
     def recomputation_policy(self, mem_limit, max_peak_memory):
 
@@ -45,12 +43,12 @@ class Recomputation:
         for cand in self.candidate_set:
             cand.recomp_srcs = self.find_srcs(cand.node, set())
             cand.recomp_time = sum([self.node_info[src].run_time for src in cand.recomp_srcs])
-
+            cand.memory_size = self.node_info[cand.node].memory_size
             cand.total_recomp_time = cand.recomp_time
             cand.recompute_ratio = float(
                 'inf') if cand.total_recomp_time == 0 else cand.memory_size / cand.total_recomp_time
 
-    def max_recomp_candidate(self, candidate_set: List[Candidate]):
+    def max_recomp_candidate(self, candidate_set: Set[Candidate]):
         max_candidate = None
         for cand in candidate_set:
             if max_candidate is None:
@@ -59,7 +57,7 @@ class Recomputation:
                 max_candidate = cand
         return max_candidate
 
-    def update_recompute_ratio(self, candidate_set: List[Candidate]):
+    def update_recompute_ratio(self, candidate_set: Set[Candidate]):
         for cand in candidate_set:
             cand.recompute_ratio = cand.memory_size / cand.total_recomp_time
 
