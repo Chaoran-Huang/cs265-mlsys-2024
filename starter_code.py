@@ -90,6 +90,8 @@ def graph_transformation(gm: fx.GraphModule, args: Any) -> fx.GraphModule:
     recomps = recomputation_node.recomputation_policy(mem_limit=torch.cuda.get_device_properties(0).total_memory / 2,
                                                       max_peak_memory=peak_mem)
 
+    print(recomps)
+
     new_graph_module = activation_checkpointing(gm, graph_profiler.node_info, recomps)
     return new_graph_module
 
