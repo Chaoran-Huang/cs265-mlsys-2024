@@ -21,7 +21,7 @@ class Recomputation:
     def __init__(self, node_info, intermediate_nodes):
         self.node_info: Dict[fx.Node, NodeInfo] = node_info
         self.intermediate_nodes: List[fx.Node] = intermediate_nodes
-        self.candidate_set: Set[Candidate] = {Candidate(node=n) for n in intermediate_nodes}
+        self.candidate_set: List[Candidate] = [Candidate(node=n) for n in set(intermediate_nodes)]
 
     def recomputation_policy(self, mem_limit, max_peak_memory):
 
@@ -50,7 +50,7 @@ class Recomputation:
             cand.recompute_ratio = float(
                 'inf') if cand.total_recomp_time == 0 else cand.memory_size / cand.total_recomp_time
 
-    def max_recomp_candidate(self, candidate_set: Set[Candidate]):
+    def max_recomp_candidate(self, candidate_set: List[Candidate]):
         max_candidate = None
         for cand in candidate_set:
             if max_candidate is None:
@@ -59,7 +59,7 @@ class Recomputation:
                 max_candidate = cand
         return max_candidate
 
-    def update_recompute_ratio(self, candidate_set: Set[Candidate]):
+    def update_recompute_ratio(self, candidate_set: List[Candidate]):
         for cand in candidate_set:
             cand.recompute_ratio = cand.memory_size / cand.total_recomp_time
 
@@ -82,8 +82,8 @@ class Recomputation:
                     if cand in rp.recomp_srcs:
                         cand.total_recomp_time += cand.recomp_time
 
-        if cand in t.recomp_srcs:
-            cand.total_recomp_time = recomp_cnt * cand.recomp_time
+            if cand in t.recomp_srcs:
+                cand.total_recomp_time = recomp_cnt * cand.recomp_time
         self.update_recompute_ratio(candidates)
 
     def find_srcs(self, node: fx.Node, srcs: Set[fx.Node]):
