@@ -37,7 +37,7 @@ class Experiment:
     def __init__(self, model_name: str, batch_size: int, extra_args=[]):
         pos = model_name.rfind(".")
         module = importlib.import_module(model_name[:pos])
-        model_class = getattr(module, model_name[(pos + 1) :])
+        model_class = getattr(module, model_name[(pos + 1):])
 
         model: BenchmarkModel = model_class(
             "train", "cuda", batch_size=batch_size, extra_args=extra_args
@@ -51,7 +51,7 @@ class Experiment:
         if self.model_type == hf_Bert.Model:
 
             def bert_train_step(
-                model: nn.Module, optim: optim.Optimizer, example_inputs: Any
+                    model: nn.Module, optim: optim.Optimizer, example_inputs: Any
             ):
                 loss = model(**example_inputs).loss
                 loss = SEPFunction.apply(loss)
@@ -67,7 +67,7 @@ class Experiment:
             self.example_inputs = model.example_inputs[0]
 
             def resnet_train_step(
-                model: nn.Module, optim: optim.Optimizer, example_inputs: Any
+                    model: nn.Module, optim: optim.Optimizer, example_inputs: Any
             ):
                 output = model(example_inputs)
                 target = torch.rand_like(output)
@@ -126,6 +126,7 @@ class Experiment:
 #     compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
 
 if __name__ == "__main__":
+    import json
 
     for model_name in model_names:
         for batch_size in model_batch_sizes[model_name]:
@@ -148,4 +149,5 @@ if __name__ == "__main__":
                 run_times.append(start_event.elapsed_time(end_event))
             run_time = mean(run_times)
             peak_memory = torch.cuda.max_memory_allocated()
-            print(run_time, peak_memory)
+            with open('data w/ AC.json', 'w') as f:
+                json.dump({str(model_name) + str(batch_size): {'run_time': run_time, 'peak_memory': peak_memory}}, f)
