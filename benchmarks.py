@@ -127,7 +127,7 @@ class Experiment:
 
 if __name__ == "__main__":
     import json
-
+    output_data = {}
     for model_name in model_names:
         for batch_size in model_batch_sizes[model_name]:
             exp = Experiment(model_name, batch_size)
@@ -149,5 +149,6 @@ if __name__ == "__main__":
                 run_times.append(start_event.elapsed_time(end_event))
             run_time = mean(run_times)
             peak_memory = torch.cuda.max_memory_allocated()
-            with open('data w/ AC.json', 'w') as f:
-                json.dump({str(model_name) + str(batch_size): {'run_time': run_time, 'peak_memory': peak_memory}}, f)
+            output_data[str(model_name) + str(batch_size)] = {'run_time': run_time, 'peak_memory': peak_memory}
+    with open('data_with_AC.json', 'w') as f:
+        json.dump(output_data, f)
