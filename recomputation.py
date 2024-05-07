@@ -54,7 +54,7 @@ class Recomputation:
 
     def max_recomp_candidate(self, candidate_set: Set[Candidate]):
         max_candidate = None
-        for cand in candidate_set:
+        for cand in list(candidate_set):
             if max_candidate is None:
                 max_candidate = cand
             elif max_candidate.recompute_ratio < cand.recompute_ratio:
@@ -68,7 +68,7 @@ class Recomputation:
 
     def update_existing_recomputatuions(self, cand, recomps):
         recomp_cnt = 1
-        for rp in recomps:
+        for rp in list(recomps):
             if cand.node in rp.recomp_srcs:
                 rp.recomp_srcs.remove(cand.node)
                 rp.recomp_srcs.update(cand.recomp_srcs)
@@ -77,13 +77,13 @@ class Recomputation:
         return recomp_cnt
 
     def update_candidates(self, recomps, t, recomp_cnt, candidates):
-        for cand in candidates:
+        for cand in list(candidates):
             if t.node in cand.recomp_srcs:
                 cand.recomp_srcs.remove(t.node)
                 cand.recomp_srcs.update(t.recomp_srcs)
                 cand.recomp_time += t.recomp_time
                 cand.total_recomp_time = cand.recomp_time
-                for rp in recomps:
+                for rp in list(recomps):
                     if cand.node in rp.recomp_srcs:
                         cand.total_recomp_time += cand.recomp_time
 
