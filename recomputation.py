@@ -47,6 +47,7 @@ class Recomputation:
     def initialization(self):
         for cand in self.candidate_set:
             cand.recomp_srcs = self.find_srcs(cand.node, set())
+            print(str(cand.node.name) + "  ---- " + str([self.node_info[src].run_time for src in cand.recomp_srcs]))
             cand.recomp_time = sum([self.node_info[src].run_time for src in cand.recomp_srcs])
             cand.memory_size = self.node_info[cand.node].memory_size
             cand.total_recomp_time = cand.recomp_time
