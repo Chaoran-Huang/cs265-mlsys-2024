@@ -360,7 +360,7 @@ class GraphProfiler(fx.Interpreter):
             else:
                 val_list.append("")
             node_summaries.append(val_list)
-        print(tabulate.tabulate(node_summaries, headers=headers))
+        # print(tabulate.tabulate(node_summaries, headers=headers))
 
 
 if __name__ == "__main__":
