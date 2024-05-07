@@ -81,6 +81,7 @@ class Recomputation:
             if t in cand.recomp_srcs:
                 cand.recomp_srcs.remove(t.node)
                 cand.recomp_srcs.add(t.recomp_srcs)
+                cand.recomp_time += t.recomp_time
                 cand.total_recomp_time = cand.recomp_time
                 for rp in recomps:
                     if cand in rp.recomp_srcs:
