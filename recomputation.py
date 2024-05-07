@@ -68,8 +68,10 @@ class Recomputation:
 
     def update_existing_recomputatuions(self, cand, recomps):
         print("----------------- updating --------------------------")
+        print(cand)
         recomp_cnt = 1
         for rp in recomps:
+            print(rp.recomp_srcs)
             if cand.node in rp.recomp_srcs:
                 print("==========HERE===============")
                 print(rp.recomp_srcs)
