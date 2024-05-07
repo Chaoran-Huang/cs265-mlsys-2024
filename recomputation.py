@@ -78,16 +78,16 @@ class Recomputation:
 
     def update_candidates(self, recomps, t, recomp_cnt, candidates):
         for cand in candidates:
-            if t in cand.recomp_srcs:
+            if t.node in cand.recomp_srcs:
                 cand.recomp_srcs.remove(t.node)
                 cand.recomp_srcs.add(t.recomp_srcs)
                 cand.recomp_time += t.recomp_time
                 cand.total_recomp_time = cand.recomp_time
                 for rp in recomps:
-                    if cand in rp.recomp_srcs:
+                    if cand.node in rp.recomp_srcs:
                         cand.total_recomp_time += cand.recomp_time
 
-            if cand in t.recomp_srcs:
+            if cand.node in t.recomp_srcs:
                 cand.total_recomp_time = recomp_cnt * cand.recomp_time
 
         return self.update_recompute_ratio(candidates)
