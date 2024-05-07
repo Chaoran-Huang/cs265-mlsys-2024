@@ -27,9 +27,9 @@ actual_model_names: List[str] = [
 ]
 
 model_batch_sizes: Dict[str, List[int]] = {
-    "torchbenchmark.models.hf_Bert.Model": [2],
-    "torchbenchmark.models.resnet18.Model": [16],
-    "torchbenchmark.models.resnet50.Model": [8],
+    "torchbenchmark.models.hf_Bert.Model": [2, 4, 8],
+    "torchbenchmark.models.resnet18.Model": [16, 32, 64],
+    "torchbenchmark.models.resnet50.Model": [8, 16, 32],
 }
 
 
@@ -88,7 +88,7 @@ class Experiment:
         self.optimizer.zero_grad()
 
     def graph_transformation(self, gm: fx.GraphModule, args: Any) -> fx.GraphModule:
-        print(gm.graph)
+        # print(gm.graph)
         warm_up_iters, profile_iters = 2, 3
         graph_profiler = GraphProfiler(gm)
 
@@ -149,6 +149,6 @@ if __name__ == "__main__":
                 run_times.append(start_event.elapsed_time(end_event))
             run_time = mean(run_times)
             peak_memory = torch.cuda.max_memory_allocated()
-            output_data[str(model_name) + str(batch_size)] = {'run_time': run_time, 'peak_memory': peak_memory}
+            output_data[str(model_name) + "@" + str(batch_size)] = {'run_time': run_time, 'peak_memory': peak_memory}
     with open('data_with_AC.json', 'w') as f:
         json.dump(output_data, f)
