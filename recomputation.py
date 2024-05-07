@@ -47,7 +47,6 @@ class Recomputation:
     def initialization(self):
         for cand in self.candidate_set:
             cand.recomp_srcs = self.find_srcs(cand.node, set())
-            print(str(cand.node.name) + "  ---- " + str([self.node_info[src].run_time for src in cand.recomp_srcs]))
             cand.recomp_time = sum([self.node_info[src].run_time for src in cand.recomp_srcs])
             cand.memory_size = self.node_info[cand.node].memory_size
             cand.total_recomp_time = cand.recomp_time
@@ -65,6 +64,7 @@ class Recomputation:
     def update_recompute_ratio(self, candidate_set: Set[Candidate]):
         for cand in candidate_set:
             cand.recompute_ratio = cand.memory_size / cand.total_recomp_time
+        return candidate_set
 
     def update_existing_recomputatuions(self, cand, recomps):
         recomp_cnt = 1
@@ -88,7 +88,8 @@ class Recomputation:
 
             if cand in t.recomp_srcs:
                 cand.total_recomp_time = recomp_cnt * cand.recomp_time
-        self.update_recompute_ratio(candidates)
+
+        return self.update_recompute_ratio(candidates)
 
     def find_srcs(self, node: fx.Node, srcs: Set[fx.Node]):
         # compute the source recursively
