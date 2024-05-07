@@ -26,10 +26,10 @@ actual_model_names: List[str] = [
     "resnet50",
 ]
 
-model_batch_sizes: Dict[str, int] = {
-    "torchbenchmark.models.hf_Bert.Model": 16,
-    "torchbenchmark.models.resnet18.Model": 128,
-    "torchbenchmark.models.resnet50.Model": 64,
+model_batch_sizes: Dict[str, List[int]] = {
+    "torchbenchmark.models.hf_Bert.Model": [16],
+    "torchbenchmark.models.resnet18.Model": [128],
+    "torchbenchmark.models.resnet50.Model": [64],
 }
 
 
@@ -129,7 +129,6 @@ if __name__ == "__main__":
 
     for model_name in model_names:
         for batch_size in model_batch_sizes[model_name]:
-
             exp = Experiment(model_name, batch_size)
             exp.init_opt_states()
             compiled_fn = compile(exp.train_step, exp.graph_transformation)
