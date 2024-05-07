@@ -30,7 +30,6 @@ class Recomputation:
 
         mem_consumption = max_peak_memory
         self.initialization()
-        print(self.candidate_set)
         recomps = set()
 
         while len(self.candidate_set) != 0:
@@ -72,7 +71,7 @@ class Recomputation:
         for rp in recomps:
             if cand.node in rp.recomp_srcs:
                 rp.recomp_srcs.remove(cand.node)
-                rp.recomp_srcs.union(cand.recomp_srcs)
+                rp.recomp_srcs.update(cand.recomp_srcs)
                 rp.recomp_time += cand.recomp_time
                 recomp_cnt += 1
         return recomp_cnt
@@ -81,7 +80,7 @@ class Recomputation:
         for cand in candidates:
             if t.node in cand.recomp_srcs:
                 cand.recomp_srcs.remove(t.node)
-                cand.recomp_srcs.union(t.recomp_srcs)
+                cand.recomp_srcs.update(t.recomp_srcs)
                 cand.recomp_time += t.recomp_time
                 cand.total_recomp_time = cand.recomp_time
                 for rp in recomps:
