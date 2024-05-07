@@ -7,6 +7,10 @@ import torch.optim as optim
 import torch.fx as fx
 from torchbenchmark.models import hf_Bert, resnet18, resnet50
 from torchbenchmark.util.model import BenchmarkModel
+
+import recomputation
+from activation_checkpoint import activation_checkpointing
+from statistics import mean
 from graph_prof import GraphProfiler
 from graph_tracer import SEPFunction, compile
 
@@ -98,15 +102,50 @@ class Experiment:
             graph_profiler.aggregate_stats()
             graph_profiler.print_stats()
 
-        return gm
+        recomputation_node = recomputation.Recomputation(
+            node_info=graph_profiler.node_info, intermediate_nodes=graph_profiler.intermediate_nodes)
+
+        peak_mem = max([mem.peak_total_mem for mem in graph_profiler.node_info.values()])
+        recomps = recomputation_node.recomputation_policy(
+            mem_limit=torch.cuda.get_device_properties(0).total_memory / 2,
+            max_peak_memory=peak_mem)
+
+        new_graph_module = activation_checkpointing(gm, graph_profiler.node_info, recomps)
+
+        return new_graph_module
 
     def run(self):
         self.train_step(self.model, self.optimizer, self.example_inputs)
         print("Successful.")
 
 
+# if __name__ == "__main__":
+#     exp = Experiment(model_names[0], model_batch_sizes[model_names[0]])
+#     exp.init_opt_states()
+#     compiled_fn = compile(exp.train_step, exp.graph_transformation)
+#     compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
+
 if __name__ == "__main__":
-    exp = Experiment(model_names[0], model_batch_sizes[model_names[0]])
-    exp.init_opt_states()
-    compiled_fn = compile(exp.train_step, exp.graph_transformation)
-    compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
+
+    for model_name in model_names:
+        for batch_size in model_batch_sizes[model_name]:
+
+            exp = Experiment(model_name, batch_size)
+            exp.init_opt_states()
+            compiled_fn = compile(exp.train_step, exp.graph_transformation)
+            compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
+            torch.cuda.synchronize()
+
+            num_iters = 3
+            run_times = []
+            torch.cuda.reset_peak_memory_stats()
+            for _ in range(num_iters):
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record()
+                compiled_fn(exp.model, exp.optimizer, exp.example_inputs)
+                end_event.record()
+                torch.cuda.synchronize()
+                run_times.append(start_event.elapsed_time(end_event))
+            run_time = mean(run_times)
+            peak_memory = torch.cuda.max_memory_allocated()
