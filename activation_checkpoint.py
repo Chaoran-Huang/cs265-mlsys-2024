@@ -5,7 +5,8 @@ from typing import Dict, Set
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch._functorch.partitioners import _extract_graph_with_inputs_outputs
 
-from graph_prof import NodeInfo
+import recomputation
+from graph_prof import NodeInfo, GraphProfiler
 from graph_tracer import SEPFunction
 from recomputation import Candidate
 
@@ -142,6 +143,7 @@ if __name__ == "__main__":
     print("Original graph of custom fn (fwd+bwd): ")
     graph_module.graph.print_tabular()
 
+    graph_profiler = GraphProfiler(graph_module)
     # Obtain the gradients of (w1, w2) using x as input to the traced function
     # NOTE: We have already captured the backward operations during tracing
     # hence we are executing in no grad mode
@@ -149,7 +151,15 @@ if __name__ == "__main__":
         old_grads = graph_module(w1, w2, x)
 
     # Apply the activation checkpointing algorithm (check new node 'relu_2')
-    new_graph_module = activation_checkpointing(graph_module)
+    recomputation_node = recomputation.Recomputation(
+        node_info=graph_profiler.node_info, intermediate_nodes=graph_profiler.intermediate_nodes)
+
+    peak_mem = max([mem.peak_total_mem for mem in graph_profiler.node_info.values()])
+    recomps = recomputation_node.recomputation_policy(
+        mem_limit=torch.cuda.get_device_properties(0).total_memory / 2,
+        max_peak_memory=peak_mem)
+    
+    new_graph_module = activation_checkpointing(graph_module, graph_profiler.node_info, recomps)
     print("Modified graph of custom fn (fwd+bwd+activation_checkpointing): ")
     new_graph_module.graph.print_tabular()
 
