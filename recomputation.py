@@ -70,6 +70,11 @@ class Recomputation:
         recomp_cnt = 1
         for rp in recomps:
             if cand.node in rp.recomp_srcs:
+                print("==========HERE===============")
+                print(rp.recomp_srcs)
+                print("---------------")
+                print(cand.recomp_srcs)
+                print('============================')
                 rp.recomp_srcs.remove(cand.node)
                 rp.recomp_srcs.union(cand.recomp_srcs)
                 rp.recomp_time += cand.recomp_time
