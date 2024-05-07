@@ -7,7 +7,7 @@ class Candidate:
     def __init__(self, node=None, memory_size=0, recomp_srcs=None, recomp_graph=None, recomp_cnt=1, recomp_time=0.0, total_recomp_time=0.0, recompute_ratio=0.0):
         self.node = node
         self.memory_size = memory_size
-        self.recomp_srcs = recomp_srcs if recomp_srcs is not None else set()
+        self.recomp_srcs = recomp_srcs
         self.recomp_graph = recomp_graph
         self.recomp_cnt = recomp_cnt
         self.recomp_time = recomp_time
@@ -80,7 +80,7 @@ class Recomputation:
         for cand in candidates:
             if t.node in cand.recomp_srcs:
                 cand.recomp_srcs.remove(t.node)
-                cand.recomp_srcs.add(t.recomp_srcs)
+                cand.recomp_srcs.union(t.recomp_srcs)
                 cand.recomp_time += t.recomp_time
                 cand.total_recomp_time = cand.recomp_time
                 for rp in recomps:
