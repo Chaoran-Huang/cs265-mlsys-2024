@@ -67,6 +67,7 @@ class Recomputation:
         return candidate_set
 
     def update_existing_recomputatuions(self, cand, recomps):
+        print("----------------- updating --------------------------")
         recomp_cnt = 1
         for rp in recomps:
             if cand.node in rp.recomp_srcs:
