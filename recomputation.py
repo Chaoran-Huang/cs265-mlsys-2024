@@ -4,7 +4,7 @@ from graph_prof import NodeInfo
 
 
 class Candidate:
-    def __init__(self, node=None, memory_size=0, recomp_srcs=None, recomp_graph=None, recomp_cnt=0.0, recomp_time=0.0, total_recomp_time=0.0, recompute_ratio=0.0):
+    def __init__(self, node=None, memory_size=0, recomp_srcs=None, recomp_graph=None, recomp_cnt=1, recomp_time=0.0, total_recomp_time=0.0, recompute_ratio=0.0):
         self.node = node
         self.memory_size = memory_size
         self.recomp_srcs = recomp_srcs if recomp_srcs is not None else set()
@@ -50,8 +50,7 @@ class Recomputation:
             cand.recomp_time = sum([self.node_info[src].run_time for src in cand.recomp_srcs])
             cand.memory_size = self.node_info[cand.node].memory_size
             cand.total_recomp_time = cand.recomp_time
-            cand.recompute_ratio = float(
-                'inf') if cand.total_recomp_time == 0 else cand.memory_size / cand.total_recomp_time
+            cand.recompute_ratio = cand.memory_size / cand.total_recomp_time
 
     def max_recomp_candidate(self, candidate_set: Set[Candidate]):
         max_candidate = None
