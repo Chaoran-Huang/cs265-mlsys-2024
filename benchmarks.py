@@ -27,9 +27,9 @@ actual_model_names: List[str] = [
 ]
 
 model_batch_sizes: Dict[str, List[int]] = {
-    "torchbenchmark.models.hf_Bert.Model": [16],
-    "torchbenchmark.models.resnet18.Model": [128],
-    "torchbenchmark.models.resnet50.Model": [64],
+    "torchbenchmark.models.hf_Bert.Model": [2],
+    "torchbenchmark.models.resnet18.Model": [16],
+    "torchbenchmark.models.resnet50.Model": [8],
 }
 
 
@@ -148,3 +148,4 @@ if __name__ == "__main__":
                 run_times.append(start_event.elapsed_time(end_event))
             run_time = mean(run_times)
             peak_memory = torch.cuda.max_memory_allocated()
+            print(run_time, peak_memory)
