@@ -37,6 +37,8 @@ class Recomputation:
             recomps.add(r_cand)
             cand = r_cand
             self.candidate_set.remove(cand)
+            print("CAND RECOMPS =================")
+            print(cand, recomps)
             recomp_cnt = self.update_existing_recomputatuions(cand, recomps)
             self.candidate_set = self.update_candidates(recomps, cand, recomp_cnt, self.candidate_set)
             mem_consumption -= cand.memory_size
