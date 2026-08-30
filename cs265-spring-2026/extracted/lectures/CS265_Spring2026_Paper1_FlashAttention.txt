@@ -1,0 +1,1385 @@
+CS 2650: Paper Discussion
+
+
+
+                March 10, 2026
+   Annie Liu, Andrew Ma, Mert Akin, Ryan Liu
+                     AI
+               LLM
+
+Transformers
+
+
+
+       Attention
+Timeline
+
+                        First ChatGPT Release
+                               Nov 2022
+
+ 2020         2021   2022          2023         2024          2025      2026
+    GPT-3 Release      FlashAttention               GPT-4o           Claude Opus 4.6
+     June 2020            May 2022                 May 2024             Feb 2026
+
+
+
+
+        This paper was written before LLMs were mainstream
+Introduction
+Transformers Are Everywhere
+
+
+               Longer context enables:
+
+
+            📄                            💻
+   Long-document reasoning       Code understanding
+
+
+
+
+            🔍                            🧬
+    Retrieval augmentation           Genomics
+The Issue With Longer Contexts
+
+
+What powers longer context?
+Self-attention!
+
+Scaling context is hard:
+self-attention is quadratic in
+sequence length
+
+
+
+
+             ⚠ Self-attention: time & memory complexity is O(N²) in sequence length N
+
+                                                                                        3 / 16
+N x N matrix
+
+
+
+
+       Source: https://newsletter.theaiedge.io/p/understanding-the-self-attention
+Prior Work To Speed Attention
+
+                What they do
+
+ •   Sparse attention (local windows, strided)                     Why they fail in practice
+ •   Low-rank approximation
+ •   Theoretically attractive
+ •   Focus on reducing FLOPs:                           •    Ignore IO cost entirely
+     O(N) or O(N log N)                                 •    No real wall-clock speedup
+                                                                ○ FLOPs are not correlated with
+                                                                     speed
+                                                        •    No widespread adoption
+
+
+
+
+                                  💡 FLOPs don't tell the full story!
+    If attention is quadratic,
+         is the bottleneck
+compute OR memory movement?
+Compute-Bound vs Memory-Bound
+                     Arithmetic Intensity = FLOPs per byte of memory access
+
+
+               💾 Memory-Bound
+
+   Time determined by memory access.                           ⚙ Compute-Bound
+   Computation is fast, but waiting for data.
+                                                      Time determined by arithmetic ops.
+   Examples:                                          HBM access is smaller bottleneck.
+   · Elementwise: activation, dropout
+                                                      Examples:
+   · Reduction: softmax, layernorm, sum
+                                                      · Matrix multiplication (large inner dim)
+
+                                                      · Convolution (many channels)
+The Real Bottleneck to Tackle
+
+
+                      Modern GPUs make computations like matrix multiplication very fast.
+
+                      BUT many operations in attention are memory-bound instead.
+                      Reading/writing to GPU memory (HBM) dominates overall runtime.
+
+                      This same bottleneck exists in databases, image processing, and many
+                      other fields.
+
+
+
+
+           💡 FlashAttention tackles this memory movement bottleneck.
+Compute-Bound vs Memory-Bound
+
+
+
+
+Our focus!
+  GPU Memory Hierarchy
+
+   SRAM is 10× faster than HBM but MUCH tinier! (192 KB vs 40+ GB).
+   The goal: keep data in SRAM as long as possible.
+
+
+
+                                    On-chip SRAM
+
+
+
+
+                                                                      ← Smaller,
+                                                                       Faster
+                                    192 KB · 19 TB/s
+← Larger,
+
+
+
+
+            HBM (High Bandwidth Memory)
+ Slower
+
+
+
+
+            40–80 GB · 1.5–2 TB/s
+How GPU Kernels Execute
+
+
+  On GPUs, every operation runs as a kernel, so each kernel.:.
+
+
+                                                                         Write
+       ▶      Load           ▶     SRAM             ▶               ▶
+                                                        Compute           Back
+           from HBM                + Regs
+                                                                        to HBM
+
+
+
+
+               💡 FlashAttention reduces how often we have to go back to HBM!
+How Memory Blows Up
+
+    S = QKᵀ                                Write S → HBM                              N×N
+
+
+
+
+ P = softmax(S)                         Read S, Write P → HBM                         N×N
+
+
+
+
+    O = PV                              Read P, Write O →HBM                          N×d
+
+
+
+
+      S and P are both N×N → massive HBM traffic: write S, read S, write P, read P, write O
+A Naive Fix: Kernel Fusion
+                    Without Fusion                                With Fusion
+
+            HBM             HBM              HBM            HBM
+
+
+
+            Op 1            Op 2             Op 3                 Op1 + Op2 + Op3
+
+
+
+            HBM             HBM              HBM            HBM
+
+
+
+          3 separate HBM read/write cycles                 1 HBM read/write cycle
+
+
+
+
+⚠ But this doesn’t work for attention!
+    1. The attention matrix is too large to keep on-chip
+    2. Training requires storing intermediate matrices for the backward pass
+Why Can't We Just Discard S and P?
+
+                                                      Forward Pass
+Inference:
+1.   Forward pass
+                                    Compute S = QKᵀ
+
+Training:                           Compute P = softmax(S)
+1.   Forward pass
+      a. Store S, P to HBM
+2.   Compute loss                   Compute O = PV
+3.   Run backward pass to compute
+     gradients
+                                    Save S, P to HBM for later →
+      a. Load S, P from HBM
+4.   Update weights
+Why Can't We Just Discard S and P?
+
+                                                   Backward Pass
+Inference:
+1.   Forward pass
+                                    Need P to compute ∂L/∂V
+
+Training:                           Need S to compute ∂L/∂P
+1.   Forward pass
+      a. Store S, P to HBM
+2.   Compute loss                   Need P to compute ∂L/∂Q, ∂L/∂K
+3.   Run backward pass to compute
+     gradients
+                                    Reload S, P from HBM ←
+      a. Load S, P from HBM
+4.   Update weights
+Standard Attention: IO Complexity
+
+                    HBM Accesses: Θ( Nd + N² )
+
+  Nd       Loading Q, K, V                            N²         Storing & Reading S, P
+
+
+
+       Each of Q, K, V is N × d                            S = QKᵀ and P = softmax(S)
+    → Linear in sequence length N                           both N × N → quadratic!
+
+
+
+
+         The N² term dominates for long sequences. This is what we must eliminate.
+     Can we compute
+      exact attention
+without writing NxN matrices
+        to memory?
+
+        Yes, with FlashAttention!
+Solution at a Glance
+
+ 💡 What is FlashAttention?                                         ✅ Implementation
+
+ An algorithm that computes exact attention                        Implemented in CUDA for fine-grained
+ (no approximation) with far fewer memory                          memory control.
+ accesses.                                                         Fuses all attention ops into one GPU kernel.
+
+
+
+Results
+
+             2–3×                                    O(N)                              Extendible
+     Faster attention computation          Lower bound for exact attention            Useful primitive for other
+=> faster training of existing methods   => enables training of larger models      approximate attention algorithms
+Methodology
+FlashAttention: Two Ideas, One Elegant Solution
+Goal: compute exact attention without materializing the N×N matrix in slow memory
+
+
+
+                         ⊞                                                                 Σ
+
+                     Tiling                                                      Online Softmax
+
+                                                                  Track running max m and sum ℓ as we process
+     Split Q, K, V into small blocks that fit in fast
+                                                                   each tile. Merge statistics incrementally with
+    SRAM. Compute attention tile-by-tile entirely
+                                                                  rescaling — exact softmax without seeing the
+    on-chip — never forming the full N×N matrix.
+                                                                                      full row.
+
+
+                Works trivially for matmul                                    Solves the softmax tiling problem
+
+
+
+
+Together → One fused CUDA kernel · O(N) memory · Exact result · 2–4× faster
+Tiling: Compute Attention Block by Block
+Q, K, V split into blocks:                                     On-chip SRAM — 19 TB/s · ~20 MB
+      Q                 K               V
+                                                                                             tile
+                                                                                           (Bᵣ×Bc)
+
+
+
+                                                                                                  ↕
+                                                   →
+                                                   load
+                                                               GPU HBM — 1.5 TB/s · 40 GB
+                                                   block
+                                                               Q, K, V, O (full matrices live here)
+
+
+
+
+     Bᵣ×d              Bc×d            Bc×d
+
+
+  Block sizes: Bc = ⌈M/4d⌉ and Bᵣ = min(⌈M/4d⌉, d) — chosen so 4 blocks fit in SRAM of size M. That's it.
+
+
+Matmul tiles trivially — partial sums just accumulate. But softmax needs the full row. So what do we do?
+Tiling: Why Softmax Breaks It
+  softmax(x)ᵢ = exp(xᵢ) / Σⱼ exp(xⱼ) ← needs ALL j simultaneously
+
+What happens if we naïvely softmax each tile separately (row of N attention scores, split into Tc tiles of Bc each)?
+
+                       Tile 1                                        Tile 2                                         Tile 3
+
+     x₁                                            x₄                                             x₇
+
+     x₂                                            x₅                                             x₈
+
+     x₃                                            x₆                                             x₉
+
+
+  local denom:                                 local denom:                                    local denom:
+  exp(x₁ - m̃ ) + exp(x₂ - m̃ ) + exp(x₃)      exp(x₄ - m̃ ) + exp(x₅ - m̃ ) + exp(x₆ - m̃ )   exp(x₇ - m̃ ) + exp(x₈ - m̃ )+ exp(x₉ - m̃ )
+
+
+
+
+  ✗ Each tile normalizes by its own local sum → the three softmax outputs use different denominators and cannot be
+  combined.
+
+Softmax couples ALL elements of a row. You can't tile it naively — there's no fix after the fact.
+Tiling: Loop Structure
+Outer loop iterates over K/V blocks (j) — inner loop iterates over Q blocks (i)
+
+
+
+
+                                                           ← Inner loop (i) →
+  For each K/V block j (outer), every Q block i (inner) computes tile S ij on SRAM — merged online, written to HBM.
+What Fits in SRAM?
+
+             Br                                      Bc                                      M
+Q Block Rows                             K, V Block Cols                        SRAM Budget
+                                                                                Total on-chip SRAM — the
+Number of query rows                     Number of key/value rows
+                                                                                constraint everything must
+loaded at once into SRAM                 loaded alongside each Q tile
+                                                                                fit within
+
+
+         Block size constraint: 2Br × d + 2Bc × d ≤ M      →        Bc = ⌈M / 4d⌉, Br = min(⌈M / 4d⌉, d)
+
+What lives on-chip simultaneously:
+          Q block                    K block                   V block                   Output O
+           Br × d                     Bc × d                    Bc × d                    Br × d
+Try it yourself!
+         https://andrewma5.github.io/flashattention-softmax-demo/
+Why Online Softmax is Non-Trivial
+  ✗ Naïve Attempt                                                       ✓ What We Need
+
+ For each tile j:                                                       A way to process tiles one at a time and end up with
+     softmax_j = exp(Sij - ̃mij)/ rowsum(exp(Sij - ̃mij                 the correct globally-normalized result:
+))
+                                                                        1
+                                                                              See tile 1, get partial result Õ₁
+
+
+  Oᵢ = Σᵢ softmax_j · Vᵢ ← incompatible scale                           2
+                                                                              See tile 2, update Õ₁ → Õ₂ using tile 2 info
+
+
+     Why it fails:                                                      ⋯
+                                                                              Continue for all Tc tiles
+     softmax_1 is normalized by Σ(tile 1)
+     softmax_2 is normalized by Σ(tile 2)
+                                                                        ✓
+     These are different denominators. The outputs live on
+                                                                              Final result = softmax(QKᵀ)V ✓
+     incompatible scales — you cannot add them.
+                                                                         Key: carry (m, ℓ) as running stats, rescale at each step
+
+
+The challenge: find statistics you can carry across tiles that enable exact global normalization after the fact.
+Online Softmax: The Solution
+ Numerically Stable Softmax                                         Block Decomposition (x⁽¹⁾ ∪ x⁽²⁾ → x)
+
+
+ m(x)               = max xᵢ                   row max                                                                       merge
+                                                                   m(x)    = max( m(x⁽¹⁾), m(x⁽²⁾) )                         maxes
+
+
+ f(x)ᵢ              = exp(xᵢ − m(x))           shifted exp
+                                                                   ℓ(x)    = ℓ(x) = e^(m⁽¹⁾−m) · ℓ⁽¹⁾ + e^(m⁽²⁾−m) · ℓ⁽²⁾⁾   rescale
+
+
+ ℓ(x)               = Σᵢ f(x)ᵢ                 normalizer
+
+                                                                   softmax(x) = f(x) / ℓ(x)                                  exact ✓
+
+ softmax(x)         = f(x) / ℓ(x)              output
+
+
+                                                                    Key: carry only (m, ℓ) per row → merge any two
+                                                                    blocks exactly → one block at a time
+
+
+
+Track only (m, ℓ) per row → exact softmax one block at a time, never needing the full row.
+  What Is Stored Per Row
+
+
+               m                                                ℓ                                        O
+   Running Max                                  Running Sum                                Partial Output
+   Maximum attention score
+                                                Sum of all exp(s − m) values               Accumulated weighted sum
+   seen so far in this row.
+                                                seen so far. The                           of V rows so far. Rescaled
+   Keeps exp() from
+                                                normalization denominator.                 each block. Final answer
+   overflowing. Updated each
+                                                Rescaled when m changes.                   after all tiles.
+   block.
+
+
+   Update rule per new block j:
+
+mnew = max(mi, mij)     ℓnew = emᵢ − mᵢ new · ℓi + emᵢⱼ − mᵢ new · ℓij   Onew = ( ℓi · emᵢ−mᵢnew · Oi + emᵢⱼ−mᵢnew · P̃ ij · Vj ) / ℓnew
+Numeric Example: Setup
+N=4, d=1, Bᶜ=2 → 2 tiles of size 2
+Q, K split into blocks first. Each tile Sᵢⱼ = Qᵢ × Kⱼᵀ computed on SRAM:
+
+                          Tile j=1                                                           Tile j=2
+                      Q₁ × K₁ᵀ on SRAM                                                   Q₁ × K₂ᵀ on SRAM
+
+
+                     [ 1.0, 3.0 ]                                                        [ 2.0, 0.5 ]
+
+                                               ← Outer loop j=1 first, then j=2 →
+
+
+
+
+Running stats before we start:
+
+mᵢ (running max)                             ℓᵢ (running sum)                            Oᵢ (output so far)
+
+                   −∞                                           0                                             0
+
+Key question: can we get exact softmax([1.0, 3.0, 2.0, 0.5])·V without ever seeing the full row at once?
+Tile j=1: Local Statistics
+Load [ 1.0, 3.0 ] into SRAM — compute local softmax stats
+
+  Tile j=1 = [ 1.0, 3.0 ]
+
+ 1     Local max — for numerical stability
+       ̃mi1      =     max( 1.0,            3.0 )        =      3.0
+
+       → Subtract this from all scores before exp → prevents overflow
+
+
+ 2     Shift and exponentiate
+       e^( 1.0 − 3.0 )                  =     e^(−2.0) =  0.135
+       e^( 3.0 − 3.0 )                  =     e^(0.0) =  1.0
+       → These are the unnormalized attention weights P̃ i1 for this tile
+
+
+ 3     Local sum — tile's own denominator
+       ̃ℓi1 =        0.135 + 1.0              =     1.135
+
+       → This is only the denominator for tile 1 — not the global denominator yet
+
+
+After tile 1: local stats are m̃ ᵢ₁ = 3.0, P̃ i1 = [0.135, 1.0], ̃ℓi1 = 1.135 — all tile-local, not global yet.
+Tile j=1: Update Running Statistics
+Merge tile 1 stats into global running stats — first iteration is trivial
+Before tile 1:
+mᵢ                                                      ℓᵢ                                                Oᵢ
+
+                      −∞                                                        0                                          0
+
+ New global max
+ mᵢⁿᵢʷ = max( −∞,                    3.0 )        =   3.0
+ → First tile so trivially takes the tile's max
+
+ New normalizer
+ ℓᵢⁿᵢʷ = e^(−∞−3.0)·0                       +     e^(3.0−3.0)·1.135                 =     0   +    1.0·1.135   =   1.135
+ → Old ℓᵢ=0 contributes nothing; new tile's ̃ℓi1= 1.135 carries over directly
+
+ Partial output after tile 1
+ Oᵢ⁽¹⁾ = ( 0.135·V₁                     +     1.0·V₂ )        /     1.135
+                      new
+ → Normalized by ℓᵢ      =1.135 — correct for tile 1 only, will be rescaled when tile 2 arrives
+
+
+Running stats after tile 1:                                                             mᵢ = 3.0          ℓᵢ = 1.135           Oᵢ = Oᵢ⁽¹⁾
+
+Now we load tile 2. The running stats (m, ℓ, O) are all we carry forward — no tile 1 data kept in SRAM.
+Tile j=2: Local Statistics
+Load [ 2.0, 0.5 ] into SRAM — compute local softmax stats
+
+  Tile j=2 = [ 2.0, 0.5 ]
+
+ 1     Local max
+       ̃mi2     =     max( 2.0,             0.5 )        =        2.0
+
+       → Different from mᵢ = 3.0 — this is exactly the incompatibility from the previous slides
+
+
+ 2     Shift by local max and exponentiate
+       e^( 2.0 − 2.0 )                 =     e^( 0.0 )             =     1.0
+       e^( 0.5 − 2.0 )                 =     e^(−1.5 )             =     0.223
+       → P̃ i2 = [1.0, 0.223] — unnormalized weights for tile 2
+
+
+ 3     Local sum
+       ̃ℓi2     =     1.0 + 0.223              =      1.223
+
+       → Tile 2's local denominator — normalized by m̃ i2=2.0, not the global max m=3.0
+
+
+m̃ i2 = 2.0 ≠ mᵢ = 3.0 — the running max from tile 1 is larger. Online softmax handles this with rescaling.
+Tile j=2: Merge Stats — Online Softmax
+This is the key step — rescale to the new global max
+Running stats coming in from tile 1:                                             mᵢ = 3.0   ℓᵢ = 1.135
+
+ New global max
+ mᵢⁿᵢʷ      =    max( 3.0,         2.0 )       =    3.0        ← unchanged
+ → Tile 2's max (2.0) is smaller than the running max (3.0) — no change needed
+Tile j=2: Merge Stats — Online Softmax
+This is the key step — rescale to the new global max
+Running stats coming in from tile 1:                                                        mᵢ = 3.0      ℓᵢ = 1.135
+
+ New global max
+ mᵢⁿᵢʷ      =          max( 3.0,      2.0 )        =    3.0        ← unchanged
+ → Tile 2's max (2.0) is smaller than the running max (3.0) — no change needed
+
+ Rescale old ℓᵢ to new max
+ e^(3.0−3.0) · 1.135                   =      1.0 · 1.135           =    1.135
+                                        new
+ → Since max didn't change, e^(mᵢ−mᵢ       ) = e^0 = 1.0 — old ℓᵢ carries over unchanged
+
+ Scale new tile's ̃ℓi2 to global max
+ e^(2.0−3.0) · 1.223                   =      0.368 · 1.223             =    0.450
+                 new
+ → e^(m̃ i2−mᵢ     ) = e^(2.0−3.0) = 0.368 — corrects tile 2's sum to be consistent with global max 3.0
+Tile j=2: Merge Stats — Online Softmax
+This is the key step — rescale to the new global max
+Running stats coming in from tile 1:                                                        mᵢ = 3.0      ℓᵢ = 1.135
+
+ New global max
+ mᵢⁿᵢʷ      =          max( 3.0,       2.0 )       =    3.0        ← unchanged
+ → Tile 2's max (2.0) is smaller than the running max (3.0) — no change needed
+
+ Rescale old ℓᵢ to new max
+ e^(3.0−3.0) · 1.135                   =       1.0 · 1.135          =    1.135
+                                         new
+ → Since max didn't change, e^(mᵢ−mᵢ       ) = e^0 = 1.0 — old ℓᵢ carries over unchanged
+
+ Scale new tile's ̃ℓi2 to global max
+ e^(2.0−3.0) · 1.223                   =       0.368 · 1.223            =    0.450
+                 new
+ → e^(m̃ ᵢ₂−mᵢ     ) = e^(2.0−3.0) = 0.368 — corrects tile 2's sum to be consistent with global max 3.0
+
+ New global normalizer
+ ℓᵢⁿᵢʷ      =          1.135   +     0.450       =     1.585
+ → This is the exact softmax denominator for the full row [1.0, 3.0, 2.0, 0.5]
+
+
+
+ℓᵢnew = 1.585 is the exact global denominator — computed without ever seeing all 4 scores simultaneously.
+Tile j=2: Update Output
+Rescale old output, add new tile contribution, normalize
+
+①      Rescale old Oᵢ⁽¹⁾ to new global max
+       e^(mᵢ−mᵢⁿᵢʷ) · Oᵢ⁽¹⁾              =   e^(3.0−3.0) · Oᵢ⁽¹⁾              =     1.0 · Oᵢ⁽¹⁾
+
+       → Max didn't change so e^0 = 1.0 — Oᵢ⁽¹⁾ carries over with no modification
+Tile j=2: Update Output
+Rescale old output, add new tile contribution, normalize
+
+①      Rescale old Oᵢ⁽¹⁾ to new global max
+       e^(mᵢ−mᵢⁿᵢʷ) · Oᵢ⁽¹⁾               =    e^(3.0−3.0) · Oᵢ⁽¹⁾               =    1.0 · Oᵢ⁽¹⁾
+
+       → Max didn't change so e^0 = 1.0 — Oᵢ⁽¹⁾ carries over with no modification
+
+
+
+②      New tile contribution — scaled to global max
+       e^(̃mi2−mᵢⁿᵢʷ) · ̃Pi2 · V               =    e^(2.0−3.0) · [1.0, 0.223] · V                  =   0.368 · ̃Pi2 · V
+
+       → e^(m̃ i2−mᵢnew) = 0.368 rescales tile 2's weights to be consistent with global max
+Tile j=2: Update Output
+Rescale old output, add new tile contribution, normalize
+
+①      Rescale old Oᵢ⁽¹⁾ to new global max
+       e^(mᵢ−mᵢⁿᵢʷ) · Oᵢ⁽¹⁾               =    e^(3.0−3.0) · Oᵢ⁽¹⁾               =    1.0 · Oᵢ⁽¹⁾
+
+       → Max didn't change so e^0 = 1.0 — Oᵢ⁽¹⁾ carries over with no modification
+
+
+
+②      New tile contribution — scaled to global max
+       e^(̃mi2−mᵢⁿᵢʷ) · ̃Pi2 · V                =    e^(2.0−3.0) · [1.0, 0.223] · V                   =   0.368 · ̃Pi2 · V
+
+       → e^(m̃ i2−mᵢnew) = 0.368 rescales tile 2's weights to be consistent with global max
+
+
+
+③      Combine and normalize by ℓᵢnew
+       Oᵢⁿᵢʷ      =    ( ℓᵢ · 1.0 · Oᵢ⁽¹⁾               +    0.368 · Pi2· V )            /    1.585
+
+       → ℓᵢ = 1.135 weights the old output, 0.368·P̃ i2 weights the new tile
+
+
+  Oᵢnew = diag(ℓᵢnew)⁻¹ ( diag(ℓᵢ)·e^(mᵢ−mᵢnew)·Oᵢ + e^(m̃ ij−mᵢnew)·P̃ ijVj )
+
+After both tiles: Oᵢnew is the exact attention output for this query row — S was never written to HBM.
+Verify: Is the Answer Exact?
+Compare online softmax result vs standard softmax on full row
+
+ Standard Softmax (full row)                                       Online Softmax (our result)
+ Subtract global max = 3.0:                                         After tile 1:
+ exp(1.0−3.0) = 0.135                                                 ℓᵢ = 1.135,       mᵢ = 3.0
+ exp(3.0−3.0) = 1.0
+ exp(2.0−3.0) = 0.368                                               After tile 2:
+ exp(0.5−3.0) = 0.082                                                 rescale: 0.368 · 1.223 = 0.450
+                                                                      ℓᵢⁿᵢʷ = 1.135 + 0.450
+ Sum = 0.135+1.0+0.368+0.082                                                 = 1.585      ✓
+       = 1.585
+
+
+
+
+                         Both give ℓ = 1.585 → same softmax weights → same output ✓
+Exact match — not an approximation. Block size affects speed, not correctness. This is what Theorem 1 proves.
+    Tile j=1: What's Happening Spatially
+    Q₁ × K₁ᵀ computed as tile S₁₁ on SRAM — local max and local sum extracted
+                                        Kᵀ
+                                                                    j
+       Q                   Kⱼᵀ                                      →                  m         l     V   O
+i
+↓                                                                       m̃ i1 = 3.0
+
+       Q₁                   S₁₁                                                        mᵢ        ℓᵢ
+                                                                      ̃ℓi1= 1.135
+
+
+
+
+                        S₁₁ on SRAM — never written to HBM
+
+
+
+
+      Q₁ × K₁ᵀ produces tile S₁₁ on SRAM — local max m̃ i1 and local sum ̃ℓi1extracted, S discarded.
+    Tile j=1: Partial Output Written
+    Running stats mᵢ, ℓᵢ updated — partial output O₁ computed from S₁₁ and written back to HBM
+                                       Kᵀ
+       Q                  Kⱼᵀ                                     j                   m         l   V       O
+                                                                  →
+i
+↓
+
+       Q₁                  S₁₁                                                        mᵢ       ℓᵢ   Vⱼ      O₁
+
+
+
+
+                                                                                        mᵢ = 3.0          partial
+                                                                                       ℓᵢ = 1.135           will
+                                                                                      updated ✓           rescale
+                                                                                                         when j=2
+
+
+
+
+                                                 Oᵢ⁽¹⁾ = ( 0.135·v1 + 1.0·v2 ) ÷ 1.135
+      After tile j=1: S₁₁ discarded from SRAM, mᵢ=3.0, ℓᵢ=1.135, O₁ written to HBM.
+    Tile j=2: What's Happening Spatially
+    Same Q₁ row, now multiplied by column j=2 of Kᵀ — tile S₁₂ computed on SRAM
+                                      Kᵀ
+       Q                                         Kⱼᵀ             j                  m         l         V   O
+                                                                 →
+i
+↓                                                                    m̃ i2 = 2.0
+
+       Q₁                                         S₁₂                               mᵢ        ℓᵢ            O₁
+
+
+                                                                   ̃ℓi2 = 1.223
+
+
+                             m̃ i2 = 2.0 ≠ mᵢ = 3.0
+                          must rescale before merging
+
+
+
+
+     Q₁ × K₂ᵀ produces S₁₂ — local max m̃ i2=2.0 differs from running max mᵢ=3.0. Rescaling required.
+    Tile j=2: Merge Stats into Running Totals
+    Rescale m̃ ᵢ₂ and ℓ̃ᵢ₂ to global max — write mᵢnew=3.0 and ℓᵢnew=1.585 into m/l columns
+                                       Kᵀ                         j
+       Q                                                          →                  m           l       V           O
+i                                                                     m̃ i2 = 2.0
+↓
+
+       Q₁                                          S₁₂                              3.0       1.585                  O₁
+                                                                    ̃ℓi2 = 1.223
+
+
+
+                                                                                    mᵢnew = max(3.0,
+                                                                                                                  O₁ still
+                                                                                        2.0) = 3.0
+                                                                                                                 partial —
+                                                                                     ℓᵢnew = 1.135 +
+                                                                                                                  not yet
+                                                                                      0.368·1.223                updated
+                                                                                         = 1.585 ✓
+
+
+
+
+      m̃ i2=2.0 and ̃ℓi2=1.223 rescaled to global max 3.0 → merged into mᵢnew=3.0, ℓᵢnew=1.585. O not yet updated.
+    Tile j=2: Final Output — Exact Result
+    Rescale old O₁, add tile 2 contribution, normalize by ℓᵢnew = 1.585 → exact output
+                                      Kᵀ
+       Q                                                                            m          l        V         O
+i
+↓
+                                                                                                                 Oᵢⁿᵉʷ
+       Q₁                                        S₁₂                               3.0       1.585
+                                                                                                                  ✓
+
+
+
+
+                                                                                     mᵢnew = 3.0
+                                                                                    ℓᵢnew = 1.585
+
+
+                                                                                                        Vⱼ
+
+
+
+
+                                Oᵢnew = diag(ℓᵢnew)⁻¹ · ( diag(ℓᵢ)·e^(mᵢ−mᵢnew)·Oᵢ + e^(m̃ ij−mᵢnew)·P̃ ijVⱼ )
+
+      Oᵢnew is the exact attention output — S was never stored in HBM. This is what saves the memory.
+What        About Q₂?
+Our numeric example only traces i=1. Here is the full 2×2 tile picture.
+                                 j=1 (K₁ᵀ)                                              j=2 (K₂ᵀ)
+
+
+
+                                   S₁₁                                                    S₁₂
+  i=1                             Q₁ × K₁ᵀ                                              Q₁ × K₂ᵀ
+  (Q₁)
+                        ✓ covered in previous slides                           ✓ covered in previous slides
+
+
+
+
+                                   S₂₁                                                    S₂₂
+   i=2                           Q₂ × K₁ᵀ                                               Q₂ × K₂ᵀ
+  (Q₂)
+                     same process, independent of Q₁                         same process, independent of Q₁
+                                 not shown                                              not shown
+
+
+  Our numeric example traces the full i=1 row (S₁₁ then S₁₂). Q₂ would repeat identically but independently.
+Q₂ Repeats the Same Process Independently
+No communication between query rows — each i has its own running stats
+
+
+         Own running stats
+  ①      Q₂ starts fresh with mᵢ=−∞, ℓᵢ=0, Oᵢ=0 — completely separate from Q₁
+
+
+         Same j sweep
+  ②      j=1 then j=2 — S₂₁ and S₂₂ computed, merged, output O₂ written to HBM row 2
+
+
+         No shared state
+  ③      Q₁ and Q₂ never interact — this is why FlashAttention can parallelize across query blocks
+
+
+         Memory stays bounded
+  ④      Only one tile of S ever lives on SRAM at a time, regardless of how many query rows there are
+
+
+
+ Each query row is self-contained — the online softmax runs independently per row, sweeping all K/V tiles.
+Algorithm 1: FlashAttention — Full Picture
+# Q,K,V ∈ ℝᵢˣᵢ   stored in HBM   →   output O ∈ ℝᵢˣᵢ
+                                                                   Color Guide
+Init Oᵢ=0, ℓᵢ=0, mᵢ=−∞ for all i
+                                                                       Init (O, ℓ, m)
+for j=1…Tc: ▷ K,V tile loop
+  Load Kᵢ,Vᵢ HBM→SRAM                                                  HBM → SRAM loads
+  for i=1…Tr: ▷ Q tile loop
+    Load Qᵢ,Oᵢ,ℓᵢ,mᵢ HBM→SRAM
+    Sᵢᵢ = QᵢKᵢᵢ÷√d ▷ on-chip                                           On-chip matmul (Sᵢⱼ)
+    m̃ᵢᵢ = rowmax(Sᵢᵢ)
+    P̃ᵢᵢ = exp(Sᵢᵢ−m̃ᵢᵢ)
+    ℓ̃ᵢᵢ = rowsum(P̃ᵢᵢ)                                                Local softmax stats
+    mᵢⁿᵢʷ = max(mᵢ, m̃ᵢᵢ)
+    ℓᵢⁿᵢʷ = e^(mᵢ−mᵢⁿᵢʷ)·ℓᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·ℓ̃ᵢᵢ
+    Oᵢⁿᵢʷ = (ℓᵢ·e^(mᵢ−mᵢⁿᵢʷ)·Oᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·P̃ᵢᵢVᵢ) / ℓᵢⁿᵢʷ       Online softmax + output
+    Write Oᵢ,ℓᵢ,mᵢ SRAM→HBM
+return O
+                                                                       Write back to HBM
+① Init State
+ # Q,K,V ∈ ℝᵢˣᵢ    in HBM   →   output O ∈ ℝᵢˣᵢ   ① Init State
+
+ Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞ for all i
+                                                   1   One row's state: Oᵢ, ℓᵢ, mᵢ — initialized
+                                                       for every row of Q.
+
+
+
+
+                                                   2   No N×N matrix: we only ever track O(N)
+                                                       values.
+
+
+
+
+                                                   3   mᵢ = −∞: ensures any real score will
+                                                       update the running max on the first tile.
+② Outer Loop — Load K, V
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM   →   output O ∈ ℝᵢˣᵢ   ② Outer Loop — Load K, V
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞   for all i
+                                                  1   Outer loop over j: iterates through Tc
+                                                      column blocks of K and V.
+for j = 1…Tc:     ▷ K, V tile loop
+   Load Kᵢ, Vᵢ     HBM → SRAM
+
+
+
+
+                                                  2   Load once, reuse many: Kⱼ and Vⱼ are
+                                                      loaded into SRAM once and held for all
+                                                      Tr inner iterations.
+
+
+
+                                                  3   Key savings: this amortizes the HBM
+                                                      cost of K, V across every Q block.
+③ Inner Loop — Load Q, O, ℓ, m
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM   →   output O ∈ ℝᵢˣᵢ   ③ Inner Loop — Load Q, O, ℓ, m
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞   for all i
+                                                  1   Inner loop over i: iterates through Tr row
+                                                      blocks of Q.
+for j = 1…Tᵢ:     ▷ K, V tile loop
+   Load Kᵢ, Vᵢ     HBM → SRAM
+
+  for i = 1…Tr:   ▷ Q tile loop
+     Load Qᵢ, Oᵢ, ℓᵢ, mᵢ   HBM → SRAM
+                                                  2   Load running state: Qᵢ, Oᵢ, ℓᵢ, mᵢ come
+                                                      from HBM — these are the O(N) stats
+                                                      from prior iterations.
+
+
+
+                                                  3   Only 4 small loads per tile: no full
+                                                      matrices ever loaded.
+④ On-Chip Score Matrix
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM     →   output O ∈ ℝᵢˣᵢ                           ④ On-Chip Score Matrix
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞     for all i
+                                                                            1   Sᵢⱼ ∈ ℝᴮʳˣᴮᶜ: a small tile of the full N×N
+                                                                                score matrix.
+for j = 1…Tc:  ▷ K, V tile loop
+   Load Kᵢ, Vᵢ   HBM → SRAM
+
+   for i = 1…Tr:   ▷ Q tile loop
+      Load Qᵢ, Oᵢ, ℓᵢ, mᵢ    HBM → SRAM
+                                                                            2   Stays on SRAM: computed entirely
+                                                                                on-chip, never written to HBM.
+      Sᵢᵢ = Qᵢ Kᵢᵢ    ÷ √d       ▷ matmul on-chip
+
+
+
+
+                                                                            3   Heart of tiling: standard attention writes
+                                                                                all of N×N to HBM — FlashAttention
+                                                                                never does.
+
+
+
+
+💡 Sij and P̃ij are born and die in SRAM — they are never written to HBM.
+⑤ Local Softmax Statistics
+ # Q,K,V ∈ ℝᵢˣᵢ    in HBM     →   output O ∈ ℝᵢˣᵢ                           ⑤ Local Softmax Statistics
+
+ Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞     for all i
+                                                                             1   m̃ ij: local row max of this tile — used to
+                                                                                 shift exp for numerical stability.
+ for j = 1…Tᵢ:     ▷ K, V tile loop
+    Load Kᵢ, Vᵢ     HBM → SRAM
+
+   for i = 1…Tʳ:  ▷ Q tile loop
+      Load Qᵢ, Oᵢ, ℓᵢ, mᵢ   HBM → SRAM
+                                                                             2   P̃ ij: unnormalized attention weights for
+                                                                                 this tile — not yet globally correct.
+      Sᵢᵢ = Qᵢ Kᵢᵢ     ÷ √d       ▷ matmul on-chip
+
+      m̃ᵢᵢ = rowmax(Sᵢᵢ)
+      P̃ᵢᵢ = exp(Sᵢᵢ − m̃ᵢᵢ)
+      ℓ̃ᵢᵢ = rowsum(P̃ᵢᵢ)
+                                                                             3   ̃ℓij: local sum — the denominator for this
+                                                                                  tile only.
+
+
+
+
+💡 Sij and P̃ ij are born and die in SRAM — they are never written to HBM.
+⑥ Rescale & Merge — Online Softmax
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM     →   output O ∈ ℝᵢˣᵢ                            ⑥ Rescale & Merge — Online Softmax
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞     for all i
+                                                                             1   mᵢnew: new global max = max of running
+                                                                                 max and this tile's max.
+for j = 1…Tc:  ▷ K, V tile loop
+   Load Kᵢ, Vᵢ   HBM → SRAM
+
+   for i = 1…Tr:   ▷ Q tile loop
+      Load Qᵢ, Oᵢ, ℓᵢ, mᵢ    HBM → SRAM
+                                                                             2   Rescaling: e^(mᵢ−mᵢnew) corrects old ℓᵢ;
+                                                                                 e^(m̃ ij−mᵢnew) corrects new ̃ℓij.
+      Sᵢᵢ = Qᵢ Kᵢᵢ    ÷ √d       ▷ matmul on-chip
+
+      m̃ᵢᵢ = rowmax(Sᵢᵢ)
+      P̃ᵢᵢ = exp(Sᵢᵢ − m̃ᵢᵢ)
+      ℓ̃ᵢᵢ = rowsum(P̃ᵢᵢ)
+                                                                             3   Exact, not approximate: this is the
+                                                                                 block-softmax decomposition —
+      mᵢⁿᵢʷ = max(mᵢ, m̃ᵢᵢ)
+                                                                                 provably correct.
+      ℓᵢⁿᵢʷ = e^(mᵢ−mᵢⁿᵢʷ)·ℓᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·ℓ̃ᵢᵢ
+
+
+
+
+💡 Sij and P̃ ij are born and die in SRAM — they are never written to HBM.
+⑦ Incremental Output Update
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM     →   output O ∈ ℝᵢˣᵢ                            ⑦ Incremental Output Update
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞     for all i
+                                                                             1   ① Rescale old Oᵢ: multiply by
+                                                                                 e^(mᵢ−mᵢnew) to adjust for updated
+for j = 1…Tc:  ▷ K, V tile loop
+                                                                                 global max.
+   Load Kᵢ, Vᵢ   HBM → SRAM
+
+   for i = 1…Tr:   ▷ Q tile loop
+      Load Qᵢ, Oᵢ, ℓᵢ, mᵢ    HBM → SRAM
+                                                                             2   ② Add new tile: e^(m̃ ij−mᵢnew)·P̃ ijVⱼ —
+                                                                                 the highlighted yellow term was missing
+      Sᵢᵢ = Qᵢ Kᵢᵢ    ÷ √d       ▷ matmul on-chip
+                                                                                 in the original slide!
+      m̃ᵢᵢ = rowmax(Sᵢᵢ)
+      P̃ᵢᵢ = exp(Sᵢᵢ − m̃ᵢᵢ)
+      ℓ̃ᵢᵢ = rowsum(P̃ᵢᵢ)
+                                                                             3   ③ Normalize: divide by ℓᵢnew → exact
+                                                                                 result for all tiles seen so far.
+      mᵢⁿᵢʷ = max(mᵢ, m̃ᵢᵢ)
+      ℓᵢⁿᵢʷ = e^(mᵢ−mᵢⁿᵢʷ)·ℓᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·ℓ̃ᵢᵢ
+
+      Oᵢⁿᵢʷ = (ℓᵢ·e^(mᵢ−mᵢⁿᵢʷ)·Oᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·P̃ᵢᵢVᵢ) / ℓᵢⁿᵢʷ
+
+
+
+💡 Sij and P̃ ij are born and die in SRAM — they are never written to HBM.
+⑧ Write Back & Return
+# Q,K,V ∈ ℝᵢˣᵢ    in HBM     →   output O ∈ ℝᵢˣᵢ                             ⑧ Write Back & Return
+
+Init Oᵢ = 0,     ℓᵢ = 0,   mᵢ = −∞     for all i
+                                                                              1   Write Oᵢ, ℓᵢ, mᵢ: only O(N) scalars go back
+                                                                                  to HBM per inner iteration.
+for j = 1…Tc:  ▷ K, V tile loop
+   Load Kᵢ, Vᵢ   HBM → SRAM
+
+   for i = 1…Tr:   ▷ Q tile loop
+      Load Qᵢ, Oᵢ, ℓᵢ, mᵢ    HBM → SRAM
+                                                                              2   Sij and P̃ ij discarded: born and die on
+                                                                                  SRAM — never touch HBM.
+      Sᵢᵢ = Qᵢ Kᵢᵢ    ÷ √d       ▷ matmul on-chip
+
+      m̃ᵢᵢ = rowmax(Sᵢᵢ)
+      P̃ᵢᵢ = exp(Sᵢᵢ − m̃ᵢᵢ)
+      ℓ̃ᵢᵢ = rowsum(P̃ᵢᵢ)
+                                                                              3   After all loops: O = softmax(QKᵀ)V
+                                                                                  exactly, with O(N) extra memory.
+      mᵢⁿᵢʷ = max(mᵢ, m̃ᵢᵢ)
+      ℓᵢⁿᵢʷ = e^(mᵢ−mᵢⁿᵢʷ)·ℓᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·ℓ̃ᵢᵢ
+
+      Oᵢⁿᵢʷ = (ℓᵢ·e^(mᵢ−mᵢⁿᵢʷ)·Oᵢ + e^(m̃ᵢᵢ−mᵢⁿᵢʷ)·P̃ᵢᵢVᵢ) / ℓᵢⁿᵢʷ
+
+
+
+💡 Sij Write
+      and P̃ ijOᵢ,
+                are born and die
+                    ℓᵢ, mᵢ       in SRAM
+                              SRAM  → HBM — they are never written to HBM.
+Complexity Analysis : Define Variables
+Variables
+
+ Symbol     Variable             Meaning
+    N       Sequence length      Number of tokens in the input sequence
+    d       Head dimension       Size of each query / key / value vector (e.g. 64 or 128)
+    M       Fast memory (SRAM)   Number of scalar floats that fit in on-chip GPU shared memory
+ Q, K, V Input matrices          Query, Key, Value matrices ∈ ℝ^(N×d)
+    O       Output matrix        Attention output ∈ ℝ^(N×d)
+ B_n, B_r Tiling block size      B_n — block size along columns (K/V dimension), B_r — block size along rows (Q dimension)
+Why No N×N Matrix Is Ever Written
+           ❌ Standard Attention                                 ✅ FlashAttention
+
+                                           Load Qi, Kj, Vj
+ S = QKᵀ
+                                           SRAM tile load (HBM read)
+ → write N×N to HBM
+                                           Compute Sij in SRAM
+ P = softmax(S)                            stays on-chip — never written to HBM
+ → read + write N×N                   VS
+                                           Update (m, ℓ, O) in SRAM
+                                           stays on-chip — never written to HBM
+ O = PV
+                                           Write Oi once
+ → read N×N, write N×d                     written back each (i, j) iteration — Sij never written
+
+
+           HBM accesses: O(Nd + N²)                 HBM accesses: O(N²d² / M) — far less!
+FlashAttention: Why Θ( N²d² / M )
+        What lives in SRAM
+                             SRAM ( ≈ M floats )
+
+           K block Bⱼ × d
+
+           V block Bⱼ × d
+
+           Q block Bᵣ × d
+
+           O block Bᵣ × d
+
+           running max + sum ( Bᵣ-length vectors )
+  SRAM constraint:
+2Bⱼd + 2Bᵣd + 2Bᵣ ≲ M
+  Bⱼ, Bᵣ = Θ(M/d)
+FlashAttention: Why Θ( N²d² / M )
+
+    Where N²d²/M comes from
+
+      Outer loop over K/V blocks: N/Bⱼ iterations
+
+
+         Inner loop over Q blocks: N/Bᵣ iterations
+
+            Each step: load Q block ( Bᵣ × d ) from HBM
+FlashAttention: Why Θ( N²d² / M )
+
+
+     Total Q reads = (N/Bⱼ)(N/Bᵣ)(Bᵣd) = N²d / Bⱼ
+
+
+
+     Plug in Bⱼ = Θ(M/d):
+     N²d / (M/d) = Θ( N²d² / M )
+Tight Lower Bound: FlashAttention Is Optimal
+
+
+
+
+ 1    Must compute all N² dot-products sᵢⱼ = qᵢᵀ kⱼ for exact attention
+Tight Lower Bound: FlashAttention Is Optimal
+
+
+           2   Split execution into phases — each phase holds ≤ M scalars in SRAM
+
+
+           3   Each phase holds ≤ M/d query vectors and ≤ M/d key vectors
+
+
+           4   Dot-products per phase ≤ (M/d)(M/d) = (M/d)²
+
+
+
+                    Phase capacity
+                                        SRAM (≤ M floats)
+
+
+                             ≤ M/d                      ≤ M/d
+                            q vectors         ×        k vectors
+
+
+                               (M/d)² dot-products per phase
+Tight Lower Bound: FlashAttention Is Optimal
+
+
+                    5     Phases needed ≥ N² / (M/d)² = N²d² / M²
+
+
+                    6     Each phase moves Ω(M) data: needs fresh vectors from HBM
+
+
+                    7     Total I/O ≥ Ω(N²d²/M²) · Ω(M)
+
+
+
+
+                                      Ω( N²d² / M )
+
+ Lower bound matches FlashAttention: Θ( N²d² / M ) is optimal for exact attention when M ≥ d²
+Gap in Proof?
+
+
+
+
+6    Each phase moves Ω(M) data: needs fresh vectors from HBM
+Block-Sparse FlashAttention
+                Core Idea
+                Restrict attention to a sparse mask
+                — only compute scores sᵢⱼ where
+                the mask allows. Skip entire K/V
+                blocks that are fully masked.
+
+
+              Sparsity mask on N×N attention
+
+
+
+
+              queries (rows)                          keys (cols)
+                   computed            skipped
+Block-Sparse FlashAttention
+                      IO Benefit
+                      If fraction s of blocks are kept, I/O
+                      drops to Θ( s * N²d² / M ) — a factor
+                      of s⁻¹ speedup over dense
+                      FlashAttention.
+
+          How it works
+           1
+               Determine a block sparsity mask Mᵢⱼ ∈ {0,1} for each
+               (Q-block, K/V-block) pair
+           2
+               In the outer loop, skip any K/V block where mask = 0. No
+               loads, no compute
+           3
+               Active blocks run identical FlashAttention kernel. Same
+               tiling, same online softmax
+When to use Block Sparse?
+
+
+       Approximation vs speed up
+       If you have a structured subset of blocks that
+       approximates full attention
+
+       => easily scale attention to longer sequences
+Experiments
+Linformer (2020)
+
+    Standard                     Q × Kᵀ                                N×N          O(N²)
+
+
+   Linformer                    Q × (EK)ᵀ                          N×k              O(Nk)
+
+                         E is a learned projection that compresses K, V from N
+                         → k rows (k ≪ N)
+
+
+
+ The catch: This is an approximation. Compressing K and V throws away fine-grained token
+ interactions.
+ Reduces FLOPs on paper, but ignores memory IO cost → limited real-world speedup. No widespread
+ adoption.
+What FlashAttention Enabled
+                 Faster Training                         Longer Context
+ Before:                                  Before:
+ GPT-2 small: ~9.5 days (HuggingFace)     Most models: ~2K token context
+ Even optimized Megatron-LM: ~4.7 days    Approx. methods (Linformer) could reach ~64K,
+                                          but quality suffered (not exact)
+
+ With FlashAttention:                     With FlashAttention:
+ New BERT speed record (beat MLPerf)      Exact attention at 4K+ context
+ GPT-2: up to 3.5× faster, same quality   Better model quality, no approximation tradeoff
+BERT Training Speed Record
+BERT-large, 8×A100 GPUs, target 72.0% masked LM accuracy
+
+
+
+
+ Nvidia
+ MLPerf 1.1                                         20.0 ± 1.5 min
+
+                                                                                   15% faster
+                                                                                   than MLPerf record
+ Flash
+ Attention                                   17.4 ± 1.4 min
+
+
+
+                        Fastest single-node BERT training at time of publication
+                        Same model, same hyperparameters, same target accuracy
+GPT-2 Training Speedup
+8×A100 GPUs, OpenWebText dataset
+
+
+GPT-2 Small (ppl = 18.2)
+  HuggingFace                                                  9.5d
+  Megatron-LM                               4.7d     2.0×
+  FlashAttention            2.7d     3.5×                                        3× faster
+                                                                                than HuggingFace
+GPT-2 Medium (ppl = 14.3)
+                                                                               Exact same perplexity
+  HuggingFace                                                 21.0d
+  Megatron-LM                                11.5d     1.8×
+  FlashAttention              6.9d     3.0×
+
+
+
+                            Same model quality, dramatically faster training
+FlashAttention also enables
+longer context lengths to be
+trained effectively
+Longer Context = Better Models
+GPT-2 Small: Longer context, better perplexity
+
+
+
+           Implementation                Context       Perplexity   Speed
+
+            Megatron-LM                     1K               18.2   4.7 days
+
+            FlashAttention                  1K               18.2   2.7 days
+
+            FlashAttention                  2K               17.6   3.0 days
+
+            FlashAttention                  4K               17.5   3.6 days
+
+
+4× longer context, 0.7 better perplexity, still 30% faster
+Longer Context = Better Models
+Long Document Classification Experiments
+
+Context Size
+               MIMIC-III (medical records) F1-Score
+512                                                     52.8
+1024                                                  50.7                              Longer Context models
+2048                                                   51.7                             perform better on Long
+4096                                                     54.6                           Document Classification
+8192                                                          56.4
+16384                                                          57.1
+
+
+Context Size
+               ECtHR (legal cases) F1-Score
+512                                                                   72.2
+1024                                                                    74.3
+2048                                                                         77.1
+4096                                                                           78.6
+8192                                                                             80.7
+16384                                                                          79.2
+Longer Context = Better Models
+Long Document Classification Experiments
+
+Context Size
+               MIMIC-III (medical records) F1-Score
+512                                                     52.8
+1024                                                  50.7              Experiment Design: Truncate document
+2048                                                   51.7                 for smaller context windows.
+4096                                                     54.6
+8192                                                          56.4                      Is this valid?
+16384                                                          57.1
+
+
+Context Size
+               ECtHR (legal cases) F1-Score
+512                                                                   72.2
+1024                                                                    74.3
+2048                                                                         77.1
+4096                                                                           78.6
+8192                                                                             80.7
+16384                                                                          79.2
+Path-X and Path-256 Benchmarks
+Test LLM ability to find long range spatial dependencies
+
+
+
+
+                                 Positive Example                             Negative Example
+
+
+Long Range Arena: A Benchmark for Efficient Transformers (Tay et. al, 2020)
+First Transformer to Solve Path-X
+Sequence length 16K — all prior Transformers failed
+
+                          Model                  Path-X (16K)          Path-256 (64K)
+                        Transformer               ✗ random               ✗ random
+                         Linformer                ✗ random               ✗ random
+                      Linear Attention            ✗ random               ✗ random
+                         Performer                ✗ random               ✗ random
+                      Local Attention             ✗ random               ✗ random
+                         Reformer                 ✗ random               ✗ random
+                          SMYRF                   ✗ random               ✗ random
+                      FlashAttention               ✓ 61.4%               ✗ random
+                Block-Sparse FlashAttention        ✓ 56.0%               ✓ 63.1%
+
+
+
+                       Entirely new capability: longer context unlocks tasks no prior
+                                         Transformer could solve
+First Transformer to Solve Path-X
+
+              Model                      Path-X (16K)          Path-256 (64K)
+            Transformer                   ✗ random               ✗ random       Trains to 64k input
+             Linformer                    ✗ random               ✗ random       tokens, but still fails
+          Linear Attention                ✗ random               ✗ random
+             Performer                    ✗ random               ✗ random
+          Local Attention                 ✗ random               ✗ random
+             Reformer                     ✗ random               ✗ random
+              SMYRF                       ✗ random               ✗ random
+          FlashAttention                  ✓ 61.4%                ✗ random       Unclear why this is
+    Block-Sparse FlashAttention           ✓ 56.0%                ✓ 63.1%        random
+
+
+                      FlashAttention performs better than
+                      Block-Sparse FlashAttention because it is exact
+Training Runtime and Memory
+Comparing runtime and memory footprint of multiple implementations across different sequence lengths
+
+
+
+
+                                         Exact Attention
+                                         Approximate Attention
+Limitations and Next Steps
+Limitations
+
+
+
+
+   Requires CUDA              Single-GPU Optimal         Head Dim Constraint
+   Hand-written GPU kernels     Multi-GPU adds another      Less speedup at d=128
+     Not portable across          layer of IO analysis       vs d=64 (larger blocks
+        architectures            (inter-GPU transfers)         need more SRAM)
+Next Steps and Extensions
+
+
+
+  FlashAttention                        FlashAttention-2                   FlashAttention-3
+        2022                                   2023                               2024
+
+
+
+
+    Exact attention                          2x speedup                       1.5x-2x speedup
+Optimal to lower bound                  Better GPU utilization         Exploits Hopper GPU features
+                                     Reduced non-matmul FLOPs
+
+
+                FLOPs aren’t the whole picture. IO and GPU awareness is equally, if not more, important
+Thank You for Listening
+      Any Questions?
+

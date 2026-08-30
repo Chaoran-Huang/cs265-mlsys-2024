@@ -1,0 +1,997 @@
+   Scalable Image AI via
+   Self-Designing Storage
+                   Utku
+                   Sirin
+     work with Victoria Kau man, Aadit Saluja, Florian Klein, Jeremy Hsu,
+     Vlad Cainamisir, Qitong Wang, Konstantinos Kopsinis, Stratos Idreos
+
+
+What if we can reason about image data?
+                                           ff
+     Seeing is at center of AI
+
+
+
+
+ Digital       Textile       Robot
+Pathology     Recycling    Navigation
+Data size   Model size
+                             Data size
+            1800
+
+
+
+            1350
+Petabytes
+
+
+
+
+                                                                        Model size
+            900
+
+
+
+            450
+
+
+
+              0
+                   2013   2015   2017    2019   2021        2023
+                                        Year
+
+
+
+                                                                                                        [1] https://ourworldindata.org/arti cial-intelligence
+                                                                         [2] https://ourworldindata.org/grapher/arti cial-intelligence-training-computation
+                                                       fi
+                                                                   fi
+                                  Data size                                                                  Model size
+                 1800                                                                1E+12
+                                                                                                                                                                        ViT-22B
+                                                                                                                                                                  CoAtNet
+                                                                                                                                                               MnasNet
+                                                                                                                                                            AmoebaNet-A
+                                                                                                                                                        Ef cientNetV2
+                 1350                                                                1E+06                                                               PNASNet-5
+                                                                                                                                                                ResNeXt-101
+                                                                                                                                                     ProxylessNAS
+                                                                                                                                                       ResNet-152
+                                                                                                                                                         VGG16
+
+
+
+
+                                                                        Peta FLOPs
+                                                                                                                                                     GoogLeNet
+                                                                                                                                                       RetinaNet-R101
+Petabytes
+
+
+
+
+                                                                                                                                                    AlexNet
+                                                                                                                                                              Dropout
+                                                                                     1E+00                                                             Feedforward NN
+                 900                                                                                                                              6-layer MLP
+                                                                                                                                      Decision tree
+
+                                                                                                                                   Zip CNN
+                                                                                                                                               System 11
+                                                                                               Perceptron
+                                                                                     1E-06                        Neocognitron
+                 450
+
+                                                                                               ADALINE
+                                                                                     1E-12
+                   0
+                        2013   2015   2017    2019   2021        2023                    1958            1971          1984           1997           2010           2023
+
+                                             Year                                                                    Publication date
+
+
+
+                                                                                                                            [1] https://ourworldindata.org/arti cial-intelligence
+                                                                                             [2] https://ourworldindata.org/grapher/arti cial-intelligence-training-computation
+            fi
+                                                            fi
+                                                                             fi
+                  What’s this?
+
+
+
+
+Training
+           AI      It’s a dog!
+
+                Inference
+Training      Inference
+              images   labels
+                         02
+                           57
+                         02 6
+                           57
+Re-training                  8
+ Training      Inference
+              images   labels
+                         02
+                           57
+                         02 6
+                           57
+
+Re-training                  8
+Training                                 Inference
+                                                          images                  labels
+                                                                                        02
+                                                                                          57
+                                                                                        02 6
+                                                                                          57
+ Re-training                                                                                8
+
+
+
+
+           [1] https://aws.amazon.com/blogs/aws/amazon-ec2-update-inf1-instances-with-aws-inferentia-chips-for-high-performance-cost-e ective-inferencing/
+                        [2] https://www.forbes.com/sites/moorinsights/2019/05/09/google-cloud-doubles-down-on-nvidia-gpus-for-inference/?sh=4c9817226792
+Training      Inference
+              images   labels
+                         02
+                           57
+                         02 6
+                           57
+Re-training                  8
+Where does time go?
+
+                4) GPU
+                         AI model
+        3) Transfer
+         2) CPU            Pre-process
+
+
+  1) Disk I/O                  Image les
+                 fi
+                                                           }
+Where does time go?                                                   Data: ImageNet
+                                      100                      AI Model: MobileNet V3
+                                              GPU                 Machine: V100, PCIe
+  Only 10%                                                                 Xeon, SSD
+                                            Transfer           Framework: PyTorch v1
+   is GPU!                             75
+
+                 Inference time (%)
+
+                                       50                  Data movement/
+                                              CPU
+                                                           pre-processing
+                                       25
+
+
+                                            Disk I/O
+                                       0
+                                            MobileNet V3
+                                                           }
+Where does time go?                                                   Data: ImageNet
+                                      100                      AI Model: MobileNet V3
+                                              GPU                 Machine: V100, PCIe
+  Only 10%                                                                 Xeon, SSD
+                                            Transfer           Framework: PyTorch v1
+   is GPU!                             75
+
+                 Inference time (%)
+
+                                       50                  Data movement/
+                                              CPU
+                                                           pre-processing
+                                       25
+
+
+                                            Disk I/O
+                                       0
+                                            MobileNet V3
+       Re-consider Storage for AI
+ How do machines
+store images today?   JPEG
+                      Joint Photographic Experts Group
+standard
+           compression
+RAW   JPEG
+Core
+
+ JPEG is designed for
+     human eye
+
+
+
+               AI algorithms “see”
+                     images
+Core                        A few existing designs
+
+                        JPEG
+
+
+
+   massive design space of storage formats
+       PNG
+                      BMP
+Core
+
+
+
+       massive space of AI problems
+                  Thesis
+
+Storage determines end-to-end cost. Using a
+   single storage for all problems results in
+ ine cient AI systems. Orders of magnitude
+  higher performance is only possible if the
+     storage is tailored to the AI problem.
+     ffi
+        Image Calculator
+
+
+A self-designing storage format that
+shapes itself for a given AI problem
+Recap from previous class
+Where does time go?
+
+                4) GPU
+                         AI model
+        3) Transfer
+         2) CPU            Pre-process
+
+
+  1) Disk I/O                  Image les
+                 fi
+                                                           }
+Where does time go?                                                   Data: ImageNet
+                                      100                      AI Model: MobileNet V3
+                                              GPU                 Machine: V100, PCIe
+  Only 10%                                                                 Xeon, SSD
+                                            Transfer           Framework: PyTorch v1
+   is GPU!                             75
+
+                 Inference time (%)
+
+                                       50                  Data movement/
+                                              CPU
+                                                           pre-processing
+                                       25
+
+
+                                            Disk I/O
+                                       0
+                                            MobileNet V3
+                                                           }
+Where does time go?                                                   Data: ImageNet
+                                      100                      AI Model: MobileNet V3
+                                              GPU                 Machine: V100, PCIe
+  Only 10%                                                                 Xeon, SSD
+                                            Transfer           Framework: PyTorch v1
+   is GPU!                             75
+
+                 Inference time (%)
+
+                                       50                  Data movement/
+                                              CPU
+                                                           pre-processing
+                                       25
+
+
+                                            Disk I/O
+                                       0
+                                            MobileNet V3
+       Re-consider Storage for AI
+A self-designing
+   File format
+                         ar   e B
+                     rdw            ud
+                Ha                       ge
+                                              t
+
+
+
+
+           et
+          as
+      at
+     l D
+     de
+mo
+AI
+Design space   Search
+Design space   Search
+Remove rows/                              Processing
+  columns                                 granularity
+
+                Sampling   Partitioning
+
+
+
+
+                Pruning    Quantization
+
+  Remove                                  Magnitude
+unuseful data                             reduction
+Remove rows/                              Processing
+  columns                                 granularity
+
+                Sampling   Partitioning
+
+                   10 150K
+
+           possibilities
+                Pruning    Quantization
+
+  Remove                                  Magnitude
+unuseful data                             reduction
+Designing A Domain: Pruning
+Background: Image Storage
+
+ Partition    Transform         Prune   Quantize
+             Frequency Domain
+Background: Image Storage
+
+ Partition    Transform         Prune   Quantize
+             Frequency Domain
+Low
+
+
+
+
+      High
+ Frequency-0
+
+Frequency-1
+
+ Frequency-2
+     …
+ (1) High to low   (2) Low to high
+Low
+
+
+
+
+      High
+(3) Low & high —   (4) Low & high —
+    Horizontal          Vertical
+                                                                                ResNet50, A100, PyTorch v1
+
+
+
+                              High to Low                Low to High   L+H (Horz.)    L+H (Vert.)
+
+            1
+Accuracy
+
+
+
+
+           0.5
+
+
+                       ImageNet-5c
+            0
+                 0      256     512   768   1024
+                     Number of coe cients
+                                                   ffi
+                                                                                  ResNet50, A100, PyTorch v1
+
+
+
+                              High to Low            Low to High      L+H (Horz.)       L+H (Vert.)
+
+            1
+Accuracy
+
+
+
+
+           0.5
+
+
+                       ImageNet-5c                          Blood-cell
+            0
+                 0      256     512   768   1024 0        256   512   768      1024
+                     Number of coe cients               Number of coe cients
+                                               ffi
+                                               ffi
+                                                                                   ResNet50, A100, PyTorch v1
+
+
+
+                              High to Low            Low to High      L+H (Horz.)          L+H (Vert.)
+
+            1
+Accuracy
+
+
+
+
+           0.5
+
+
+                       ImageNet-5c                          Blood-cell                          Weather
+            0
+                 0      256     512   768   1024 0        256   512   768      1024 0     256     512     768   1024
+                     Number of coe cients               Number of coe cients            Number of coe cients
+                                               ffi
+                                               ffi
+                                               ffi
+   Pruning is from
+high to low frequency
+ Pruning Domain
+
+2 BxB    2B-1
+Other primitives
+
+ Sampling   Partitioning   Prune   Quantize
+4104 new designs
+Reading & Writing
+   Algorithms
+Sample &
+              Transform        Prune   Quantize   Encode
+Partition
+            Frequency Domain
+
+                                                  image.ic
+                                                  1100010
+                                                  1011101
+Sample &
+                     Transform             Prune            Quantize              Encode
+Partition
+                 Frequency Domain
+
+                                                                                   image.ic
+                                                                                   1100010
+                                                                                   1011101
+
+
+
+                    Decode
+ image.ic                                      “Learning in
+  1100010
+  1011101
+                                            Frequency Domain”
+       Gueguen et al., NIPS’18; Xu et al., CVPR’20; Tancik et al., ICLR’20; Ning et al., ICLR’25
+Sample &
+              Transform        Prune      Quantize   Encode
+Partition
+            Frequency Domain
+
+                                                     image.ic
+                                                     1100010
+                                                     1011101
+
+
+
+              Decode                    Fast & Simple
+ image.ic                              Reconstruction
+  1100010
+  1011101                          Low GPU Time
+Design space   Search
+4104 new designs
+                   My budget
+
+
+
+
+                   Accuracy
+Performance models
+   4104 new designs
+                      Accuracy
+
+
+                      Latency
+
+
+                      Storage
+Inf./training time & space      Theoretical model
+                                 ✴ Highly error-prone
+    Empirical analysis
+     ✴ Cheap & accurate      4) GPU
+                              3) Transfer
+                                2) CPU
+
+
+                                      1) Disk I/O
+Accuracy model
+Insight 1: Inference Cost and Accuracy
+              are Correlated
+Sort
+
+
+
+
+       Least expensive to most expensive
+                                            ImageNet-5c, ResNet50
+Sort                                             A100, PyTorch v1
+Accuracy
+
+
+
+
+           Observation: Accuracies Follow
+            a Diminishing-Returns Curve
+
+            Least expensive to most expensive
+Bucket-sampling & interpolation
+Accuracy
+
+
+
+
+           Least expensive to most expensive
+Bucket-sampling & interpolation
+Accuracy
+
+
+
+
+                    2.7x reduction
+
+           Least expensive to most expensive
+Insight 2: Storage Formats are Correlated
+Bucket-sampling & interpolation
+Accuracy
+
+
+
+
+           Least expensive to most expensive
+Transfer learning
+Accuracy
+
+
+
+
+                    +10x reduction
+
+           Least expensive to most expensive
+~4K AI model   150 AI model
+  trainings      trainings
+Veri cation
+ fi
+                                                                                                             ResNet50, A100, PyTorch v1
+                      original              sampled                                               original     sampled
+            1                                                                      1
+
+           0.9                                                                    0.9
+Accuracy
+
+
+
+
+                                                                       Accuracy
+           0.8                                                                    0.8
+
+           0.7
+                     Sampled        curve
+                          ImageNet-5c
+                                                                                  0.7
+                                                                                                 Sampled        curve
+                                                                                                       Blood-cell
+           0.6       closely follows
+               s0 s12 s24 s36 s48 s60 s72 s84
+                                                                                  0.6
+                                                                                        s0
+                                                                                                 closely follows
+                                                                                             s12 s24 s36 s48 s60 s72 s84
+                       original      one
+                         Storage formats                                                           original     one
+                                                                                                    Storage formats
+                                                            original              sampled
+                                             1
+
+                                            0.9
+                                 Accuracy
+
+
+
+
+                                            0.8
+
+                                            0.7          Sampled curve
+                                                                Weather
+                                            0.6          closely follows
+                                                  s0   s12 s24 s36 s48 s60 s72 s84
+                                                           original     one
+                                                              Storage formats
+                                                                                                                         ResNet50, A100, PyTorch v1
+                           original              sampled                                                     original         sampled
+            1                                                                              1
+
+           0.9                                                                            0.9
+Accuracy
+
+
+
+
+                                                                               Accuracy
+           0.8                                                                            0.8
+
+           0.7                                                                            0.7
+                              ImageNet-5c                                                                          Blood-cell
+           0.6                                                                            0.6
+                 s0   s12 s24 s36 s48 s60 s72 s84                                               s0   s12   s24    s36   s48   s60   s72   s84
+                             Storage formats                                                                     Storage formats
+                                                                   original               sampled
+                                                  1
+
+                                                 0.9
+
+                           Sampling reduces cost with
+                                      Accuracy
+
+
+
+
+                                                 0.8
+
+
+                                    no   loss
+                                      Weather
+                                                 0.7
+
+                                                 0.6
+                                                       s0   s12   s24    s36   s48         s60       s72   s84
+                                                                        Storage formats
+                                                                                                         ResNet50, A100, PyTorch v1
+                     original        sampled & tl'ed                                        original    sampled & tl'ed
+            1                                                                   1
+
+           0.9                                                                 0.9
+Accuracy
+
+
+
+
+                                                                    Accuracy
+           0.8                                                                 0.8
+
+           0.7                                                                 0.7
+
+           0.6
+                     TL   introduces
+                          ImageNet-5c
+                                                                               0.6
+                                                                                               TL introduces
+                                                                                                   Blood-cell
+                       3-4%
+               s0 s12 s24       error
+                           s36 s48 s60 s72 s84                                       s0            no s48
+                                                                                          s12 s24 s36  loss
+                                                                                                          s60 s72 s84
+                         Storage formats                                                         Storage formats
+                                                        original    sampled & tl'ed
+                                            1
+
+                                           0.9
+                                Accuracy
+
+
+
+
+                                           0.8
+
+                                           0.7
+                                                               Weather
+                                           0.6           TL introduces
+                                                 s0
+                                                             no loss
+                                                      s12 s24 s36 s48 s60 s72 s84
+                                                             Storage formats
+                                                                                                                         ResNet50, A100, PyTorch v1
+                         original        sampled & tl'ed                                                  original      sampled & tl'ed
+            1                                                                             1
+
+           0.9                                                                           0.9
+Accuracy
+
+
+
+
+                                                                              Accuracy
+           0.8                                                                           0.8
+
+           0.7                                                                           0.7
+                              ImageNet-5c                                                                            Blood-cell
+           0.6                                                                           0.6
+                 s0   s12 s24 s36 s48 s60 s72 s84                                              s0   s12    s24    s36   s48   s60   s72   s84
+                             Storage formats                                                                     Storage formats
+                                                                original      sampled & tl'ed
+                                                1
+
+                                               0.9
+
+                       Sampling & TL reduces cost by
+                                    Accuracy
+
+
+
+
+                                               0.8
+
+
+                          30x with little
+                                     Weather
+                                            or no loss
+                                               0.7
+
+                                               0.6
+                                                     s0   s12    s24    s36   s48         s60       s72   s84
+                                                                       Storage formats
+Design space   Search
+4104 new designs
+                   My budget
+
+
+
+
+                   Accuracy
+Machine: Nvidia A100 w/ 4 GPUs
+Datasets:
+  • 5-class ImageNet
+  • Blood-cell images
+  • Weather prediction
+  • 50-class + full ImageNet
+
+AI Models: ResNet, E cientNet, MobileNet
+
+Hyper-parameters: Standard from PyTorch
+
+Baseline: JPEG
+
+
+
+
+                                           ffi
+                                                  Image Calculator                   JPEG
+                   1
+  Accuracy
+
+
+
+
+             0.8
+                               ResNet
+             0.6
+                           ImageNet-5c                             Blood-cell                      Weather
+             0.4
+
+                   1
+                                                      0.01% loss vs.
+                                                          7x gain
+Accuracy
+
+
+
+
+             0.8
+
+             0.6           ImageNet-5c
+                             ResNet                         E cientNet                       MobileNet
+             0.4
+                       0   0.175   0.35   0.525    0.7 0   0.175    0.35   0.525   0.7 0   0.175    0.35   0.525   0.7
+                           Inference time (ms)              Inference time (ms)             Inference time (ms)
+             ffi
+                                                  Image Calculator                   JPEG
+                   1
+  Accuracy
+
+
+
+
+             0.8
+                               ResNet
+             0.6
+                           ImageNet-5c
+             0.4                                     0.01% loss vs.Blood-cell                      Weather
+
+
+                                                        10x gain
+                   1
+Accuracy
+
+
+
+
+             0.8
+
+             0.6           ImageNet-5c
+                             ResNet                         E cientNet                       MobileNet
+             0.4
+                       0   0.175   0.35   0.525    0.7 0   0.175    0.35   0.525   0.7 0   0.175    0.35   0.525   0.7
+                           Inference time (ms)              Inference time (ms)             Inference time (ms)
+             ffi
+                                                  Image Calculator                   JPEG
+                   1
+
+
+                                                      0.5% loss vs.
+  Accuracy
+
+
+
+
+             0.8
+                               ResNet
+             0.6
+                           ImageNet-5c                  3.2x  gain
+                                                          Blood-cell                               Weather
+             0.4
+
+                   1
+Accuracy
+
+
+
+
+             0.8
+
+             0.6           ImageNet-5c
+                             ResNet                         E cientNet                       MobileNet
+             0.4
+                       0   0.175   0.35   0.525    0.7 0   0.175   0.35    0.525   0.7 0   0.175    0.35   0.525   0.7
+                           Inference time (ms)              Inference time (ms)             Inference time (ms)
+             ffi
+                                                                                   AI Model: MobileNet
+
+                                            Image Calculator                             JPEG
+            1                                     0.8                                    0.7
+Accuracy
+
+
+
+
+           0.7                                    0.4                                0.35
+
+
+                       5 classes                              50 classes                              1K classes
+           0.4                                     0                                      0
+                 0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7
+                                                                                                   Inference time (ms)
+                                              1.5% loss vs.
+                     Inference time (ms)                    Inference time (ms)
+
+
+
+
+                                                3.7x gain
+                                                                                   AI Model: MobileNet
+
+                                            Image Calculator                             JPEG
+            1                                     0.8                                    0.7
+Accuracy
+
+
+
+
+           0.7                                    0.4                                0.35
+
+
+                       5 classes                              50 classes                              1K classes
+           0.4                                     0                                      0
+                 0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7
+                                                                                                   Inference time (ms)
+                                              4.6% loss vs.
+                     Inference time (ms)                    Inference time (ms)
+
+
+
+
+                                                3.7x gain
+                                                                                   AI Model: MobileNet
+
+                                            Image Calculator                             JPEG
+            1                                     0.8                                    0.7
+Accuracy
+
+
+
+
+           0.7                                    0.4                                0.35
+
+
+                       5 classes                              50 classes                              1K classes
+           0.4                                     0                                      0
+                 0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7         0   0.175   0.35   0.525   0.7
+                                                                                                   Inference time (ms)
+                                                  12% loss vs.
+                     Inference time (ms)                    Inference time (ms)
+
+
+
+
+                                                    3.7x gain
+                                                                               MobileNet
+                                         V100     14
+                                                                    CPU        Blood-cell
+                        0.5
+
+
+
+
+                      0.375
+                              GPU                10.5
+Inference time (ms)
+
+
+
+
+                                                        CPU-exec.
+                              Transfer
+
+
+                       0.25                6x      7                  14x
+
+                      0.125                       3.5
+                              CPU
+                              Disk I/O                  CPU
+                         0                         0    Disk I/O
+
+
+                              JPEG          IC          JPEG              IC
+IC reduces training time
+                                        Blood-cell, ResNet50
+                                           A100, PyTorch v1
+
+                      3.5
+
+
+                      2.8
+ Training time (ms)
+
+
+
+                      2.1
+                                   6x
+                      1.4
+
+
+                      0.7
+
+
+                       0
+                            JPEG   IC
+JPEG vs. JPEG-tuned
+Related work, “Learned JPEG” (CVPR’20)
+Visual Transformers
+Object detection
+
+
+
+
+    Latency-accuracy   Latency-accuracy   Storage-accuracy
+Object detection & instance segmentation — examples
+IC maintains high visual quality
+                                   ImageNet-5c
+                                     PyTorch v1
+
+
+
+
+Original      60x         100x
+
+
+
+
+ 200x         500x       1200x
+Self-Designing AI Storage
+
+Sampling   Partitioning
+
+
+                          10150K   4104
+Pruning    Quantization
+
+
+                                          F0 F1       FN
+
+
+                                                  …
+E ciency vs. Scalability
+    ffi
+daslab.seas.harvard.edu
+
+   THANKS!
+

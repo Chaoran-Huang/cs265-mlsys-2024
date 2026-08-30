@@ -1,0 +1,964 @@
+                                         PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel
+                                                       Yanli Zhao                                Andrew Gu                           Rohan Varma                            Liang Luo
+                                                        Meta AI                                   Meta AI                                Meta AI                             Meta AI
+                                                 yanlizhao@meta.com                           andgu@meta.com                        rvarm1@meta.com                    liangluo@meta.com
+
+                                                Chien-Chin Huang                                     Min Xu                           Less Wright                    Hamid Shojanazeri
+                                                       Meta AI                                     Meta AI                                Meta AI                         Meta AI
+                                                 chienchin@meta.com                             m1n@meta.com                          less@meta.com                 hamidnazeri@meta.com
+
+                                                        Myle Ott                                 Sam Shleifer                       Alban Desmaison                       Can Balioglu
+arXiv:2304.11277v2 [cs.DC] 12 Sep 2023
+
+
+
+
+                                                       Meta AI                                     Meta AI                                Meta AI                            Meta AI
+                                                  myleott@gmail.com                         sshleifer@gmail.com                     albandes@meta.com                  balioglu@meta.com
+
+                                                  Pritam Damania                             Bernard Nguyen                         Geeta Chauhan                         Yuchen Hao
+                                                      Meta AI                                     Meta AI                              Meta AI                              Meta AI
+                                             pritam.damania@gmail.com                       bernardn@meta.com                    gchauhan@meta.com                      haoyc@meta.com
+
+                                                                                                Ajit Mathews                              Shen Li
+                                                                                                  Meta AI                                Meta AI
+                                                                                              amath@meta.com                         shenli@meta.com
+                                         ABSTRACT                                                                               PVLDB Artifact Availability:
+                                         It is widely acknowledged that large models have the potential                         The source code, data, and/or other artifacts have been made available
+                                         to deliver superior performance across a broad range of domains.                       at https://github.com/pytorch/pytorch/blob/main/torch/distributed/fsdp/
+                                         Despite the remarkable progress made in the field of machine learn-                    fully_sharded_data_parallel.py/.
+                                         ing systems research, which has enabled the development and
+                                         exploration of large models, such abilities remain confined to a                       1    INTRODUCTION
+                                         small group of advanced users and industry leaders, resulting in an                    The magnitude of neural network models is growing at an unprece-
+                                         implicit technical barrier for the wider community to access and                       dented rate, facilitating breakthroughs across a wide spectrum
+                                         leverage these technologies. In this paper, we introduce PyTorch                       of domains. Upon inception, the 175-billion-parameter GPT-3 [3]
+                                         Fully Sharded Data Parallel (FSDP) as an industry-grade solution                       model set a new record for almost all Natural Language Process-
+                                         for large model training. FSDP has been closely co-designed with                       ing tasks. The product applications constructed on top of GPT
+                                         several key PyTorch core components including Tensor implemen-                         models [23] have quickly demonstrated their potential to revolu-
+                                         tation, dispatcher system, and CUDA memory caching allocator, to                       tionize the entire industry. Modern large scale recommendation
+                                         provide non-intrusive user experiences and high training efficiency.                   models [19, 33] can reach beyond 1 trillion parameters, replete
+                                         Additionally, FSDP natively incorporates a range of techniques and                     with rapidly growing dense layer components. These models power
+                                         settings to optimize resource utilization across a variety of hardware                 applications that serve multi-billions of users every day. As large
+                                         configurations. The experimental results demonstrate that FSDP is                      neural networks continue to push the limits of science and technol-
+                                         capable of achieving comparable performance to Distributed Data                        ogy, an industry-grade tool to simplify the training of such models
+                                         Parallel while providing support for significantly larger models                       with high efficiency would help expedite the progress.
+                                         with near-linear scalability in terms of TFLOPS.                                          In recent years, the community has introduced and investigated
+                                                                                                                                numerous advanced methodologies to enlarge neural network mod-
+                                         PVLDB Reference Format:                                                                els. Pipeline parallelism [6, 8, 11, 15, 20] partitions a model instance
+                                         Yanli Zhao, Andrew Gu, Rohan Varma, Liang Luo, Chien-Chin Huang, Min                   into stages and distributes stages across multiple devices, where
+                                         Xu, Less Wright, Hamid Shojanazeri, Myle Ott, Sam Shleifer, Alban
+                                                                                                                                activations and gradients are communicated across stage bound-
+                                         Desmaison, Can Balioglu, Pritam Damania, Bernard Nguyen, Geeta
+                                                                                                                                aries. Tensor parallelism [9, 21, 31, 32] shards model parameters,
+                                         Chauhan, Yuchen Hao, Ajit Mathews, and Shen Li. PyTorch FSDP:
+                                         Experiences on Scaling Fully Sharded Data Parallel. PVLDB, 16(12):                     conducts partial computation on individual devices and communi-
+                                         3848-3860, 2023.                                                                       cates activations at required layer boundaries. Zero-Redundancy
+                                         doi:10.14778/3611540.3611569                                                           parallelism [27, 28, 30] shards parameters as well but communicates
+                                                                                                                                parameters on-demand to recover their unsharded form and exe-
+                                         This work is licensed under the Creative Commons BY-NC-ND 4.0 International            cutes the model as if it were replicated on every device. The afore-
+                                         License. Visit https://creativecommons.org/licenses/by-nc-nd/4.0/ to view a copy of
+                                         this license. For any use beyond those covered by this license, obtain permission by   mentioned techniques have served as the fundamental building
+                                         emailing info@vldb.org. Copyright is held by the owner/author(s). Publication rights
+                                         licensed to the VLDB Endowment.                                                        doi:10.14778/3611540.3611569
+                                         Proceedings of the VLDB Endowment, Vol. 16, No. 12 ISSN 2150-8097.
+blocks to enable the training of large neural networks across vari-              saturate GPU memory as much as possible to accommo-
+ous applications. Nevertheless, two challenges still persist. Firstly,           date the largest batches or models. However, operating near
+some of these methods are tightly integrated with specific model                 GPU memory capacity significantly increases the chance
+architectures, which hinder them from being utilized as a generic                to trigger defragmentations.
+solution for training large models. Secondly, some of these tech-
+niques are built on top of rapidly-evolving internal interfaces of          FSDP tackles the aforementioned challenges through a variety
+underlying machine learning frameworks, which become vulnera-            of techniques. Firstly, to improve user experience, FSDP introduces
+ble to changes in framework implementations. Therefore, it is more       deferred initialization that allows users to create a model instance
+robust and efficient to have a native solution co-designed with the      on a dummy device and record operations invoked during initializa-
+core functionalities of machine learning frameworks. Additionally,       tion. Then, the model can be initialized and sharded unit by unit by
+constructing such a solution in a composable and customizable man-       replaying the recorded operations on a real GPU device. With this
+ner could potentially facilitate the community’s future innovations      technique, FSDP can provide similar user experiences as local train-
+as well.                                                                 ing, while effectively scaling large models. Secondly, FSDP offers
+   This paper presents PyTorch [24] Fully Sharded Data Parallel          configurable sharding strategies that can be customized to match
+(FSDP), which enables the training of large-scale models by shard-       the physical interconnect topology of the cluster to handle hard-
+ing model parameters. The FSDP algorithm is motivated by the             ware heterogeneity. Thirdly, although parameter sharding design
+ZeroRedundancyOptimizer [27, 28] technique from DeepSpeed but            inevitably inserts communications, which might block computa-
+with a revised design and implementation that is aligned with the        tions and introduces bubbles during execution, FSDP can squeeze
+other components of PyTorch. FSDP breaks down a model instance           out bubbles using an abundant set of tools to aggressively overlap
+into smaller units and then flattens and shards all of the parameters    communication with computation through operation reordering
+within each unit. The sharded parameters are communicated and            and parameter prefetching. Lastly, FSDP optimizes memory usage
+recovered on-demand before computations, and then they are im-           by prudently restricting the amount of blocks allocated for inflight
+mediately discarded afterwards. This approach ensures that FSDP          unsharded parameters and suspending CPU execution if necessary.
+only needs to materialize parameters from one unit at a time, which         We evaluated the performance of FSDP on various models includ-
+significantly reduces peak memory consumption. The design and            ing popular language models and recommendation system models,
+implementation of FSDP faces the following challenges.                   utilizing up to 512 80GB A100 GPUs. The experiments showed that
+                                                                         FSDP can achieve similar performance to that of DDP on small
+     • User Experience is critical for achieving broad adoption.         models. Beyond that FDSP can facilitate significantly larger models
+       When working on prior PyTorch distributed training fea-           with near-linear scalability in terms of TFLOPS. FSDP is currently
+       tures such as DistributeDataParallel (DDP) [14], we observed      a beta feature as of PyTorch 2.0 release, and has been battle-tested
+       that aligning the user experience of distributed training         by both industrial and research applications.
+       with that of local training can significantly lower the learn-       To simplify presentation, the rest of this paper uses FSDP to
+       ing barrier. Techniques like DDP require the model to be          refer to the techniques in general and FullyShardedDataParallel to
+       replicated on every device, which implies that the entire         denote the Python implementation. The remainder of the paper
+       model can be constructed on the target device. However,           is organized as follows. Section 2 introduces background on some
+       although FSDP can easily adopt DDP’s API design, large            popular distributed training techniques. Section 3 and Section 4
+       models might not fit into one GPU device and therefore            elaborate system design and implementation details. Evaluations
+       cannot even be initialized efficiently.                           are presented in Section 5. Section 6 surveys related work, and
+     • Hardware Heterogeneity often exists in modern GPU                 Section 7 discusses topics related to FSDP but falls outside of FSDP
+       clusters, whereby interconnects are partitioned into high-        core. Finally, Section 8 concludes the paper.
+       bandwidth islands within each machine and low-bandwidth
+       mesh across machines. Additionally, there may be further
+       hierarchical structures at the rack or pod levels. Conse-         2   BACKGROUND
+       quently, the design of FSDP must accommodate such het-            PyTorch [24] has emerged as a fundamental cornerstone for a
+       erogeneity and optimize accordingly.                              plethora of machine learning endeavors. PyTorch stores values
+     • Resource Utilization is usually tightly linked with capi-         in Tensor objects, which are versatile n-dimensional arrays featur-
+       tal and operational expenditures, especially for companies        ing a rich set of data manipulation operations. Every Tensor object
+       that depend on large GPU clusters to power their mission-         has an associated storage that is allocated on a specific device.
+       critical systems. To ensure that GPU devices remain fully         When Tensors only represent simple transformations such as reshape
+       utilized during distributed training, it is essential to mini-    and split, they can share the same underlying storage. Each Module
+       mize downtime caused by non-computational operations.             describes a transformation from input to output values, and its
+     • Memory Planning plays a crucial role in large model               behavior during the forward pass is specified by its forward member
+       training. PyTorch makes GPU memory block allocation               function. Such a module may feature Tensor objects as parameters,
+       efficient and transparent through caching. Frequent mem-          with the Linear module being an example that contains both weight
+       ory defragmentations can significantly slow down training,        and bias parameters. During the forward pass, the Linear module
+       which becomes particularly acute when working with large          applies these parameters to the input to produce the output by
+       models. In such scenarios, practitioners typically seek to        means of multiplication and addition operations, respectively.
+                                                                                                            FSDP Unit0          Forward       Backward
+   As both the data size and model complexity continue to escalate
+at a staggering pace, the need for an industry-grade distributed              layer0                         layer0                           synchronize
+                                                                                                                                               gradients
+training framework becomes increasingly imperative for applica-
+
+
+
+
+                                                                                               FSDP Unit1
+                                                                              layer1                         layer1
+tions built on top of PyTorch. This section elucidates the trajectory                                                    Exec   gather full    free peer
+of PyTorch’s distributed training capabilities.                               layer2                         layer2              params         shards
+                                                                                       Wrap
+                                                                                        &                                        layer1        layer1
+                                                                              layer3                         layer3
+2.1    Model Replication                                                               Shard
+
+
+
+
+                                                                                               FSDP Unit2
+                                                                                                                                 layer2        layer2
+Model replication approaches are designed to tackle high-volume               layer4                         layer4
+
+datasets by scaling out and distributing computations across multi-
+                                                                              layer5                         layer5             free peer     gather full
+ple devices. DistributedDataParallel (DDP) [14] is the first end-to-end                                                          shards        params
+distributed training feature in PyTorch that falls into this category.
+DDP’s adoption has been extensive, spanning both the academic
+and industrial domains.                                                                   Figure 1: FSDP Algorithm Overview
+   DDP maintains a model replica on each device and synchronizes
+gradients through collective AllReduce operations in the backward                  each communication will appear in the critical path as it is
+pass, thereby ensuring model consistency across replicas during                    inserted between two consecutive and dependent compu-
+training. To expedite training, DDP overlaps gradient communica-                   tation operations. As a result, this communication cannot
+tion with backward computation, facilitating concurrent workload                   easily overlap with computations, unless non-dependent
+executions on diverse resources. However, one conspicuous limi-                    computations or computations from other iterations can be
+tation is that DDP requires all model parameters, gradients, and                   re-ordered to overlap with communication.
+optimizer states to fit in the memory of one GPU device. Conse-                 • Perform the same computation as local training by com-
+quently, DDP is inadequate for supporting large models, which are                  municating parameter on-demand before computations.
+critical for cutting-edge machine learning breakthroughs. For exam-                Since parameter communications do not have any data de-
+ple, when training models with more than one billion parameters                    pendency on preceding computations, they can overlap
+using a 40GB GPU device, DDP will likely encounter out-of-memory                  with the preceding computations performed in the same
+errors on each device.                                                             forward or backward pass. However, this approach requires
+                                                                                   that the on-demand communicated parameters could be
+2.2    Model Partitioning                                                          fully materialized and could fit in the memory of a single
+As the size of models grow, they may no longer fit in a single GPU                 GPU device.
+device. In such cases, a viable solution is to partition the model into      FSDP falls into the second category of communicating parame-
+smaller components and distribute them across multiple devices.           ters. Based on our observations and experiments, this approach is
+Both pipeline parallelism [8] and Tensor RPC [25] are along this          sufficient to support the vast majority of large model applications
+direction. Pipeline parallelism involves breaking a sequence of lay-      today and in the near future. It is worth noting that if the require-
+ers into stages and feeding inputs to different stages in a pipelined     ment of fully materializing each parameter unit on GPU becomes a
+fashion to optimize resource utilization. On the other hand, Tensor       blocker, we can further combine both techniques to support such
+RPC provides a lower-level toolkit that enables arbitrary computa-        use cases.
+tions to be executed on remote devices. While both techniques are
+capable of scaling large models across multiple devices, they either      3      SYSTEM DESIGN
+limit the model to a sequence of stages or require modifications to
+                                                                          Fully Sharded Data Parallel (FSDP) is capable of scaling to accom-
+the model authoring code to insert remote computations, which
+                                                                          modate large models that may not fit in a single GPU device by
+can pose a significant obstacle to users’ adoption. Moreover, many
+                                                                          sharding the dense parameters. More specifically, FSDP decom-
+industrial training infrastructures only support the single-program
+                                                                          poses the model instance into smaller units and handles each unit
+multi-data paradigm, which necessitates a simpler entry point to
+                                                                          independently. During forward and backward computation, FSDP
+handle large models.
+                                                                          only materializes unsharded parameters and gradients of one unit
+                                                                          at a time, and otherwise, it keeps parameters and gradients sharded.
+2.3    Model Sharding                                                     Throughout the training loop, the optimizer states are kept sharded.
+In addition to partitioning, sharding the parameters of a model can       The memory requirements for FSDP are proportional to the size
+also help reduce its memory footprint and support models with sizes       of the sharded model plus the size of the largest fully-materialized
+beyond the memory capacity of a single GPU device. After sharding         FSDP unit.
+models, each rank only holds a shard of the model parameters,                Figure 1 demonstrates the overall workflow using a simple six
+which prevents it from performing the same computations as local          layer model. Suppose FSDP decomposes the model into three parts,
+training. To guarantee correctness, the training process needs to         namely, [layer0, layer3], [layer1, layer2], and [layer4, layer5]. The
+employ one or both of the following techniques:                           decomposition behavior can be controlled by user-defined func-
+      • Perform computations with parameter shards and commu-             tions. FSDP then wraps each of these three parts into one FSDP unit
+        nicate activations accordingly. With this approach, ranks         and shards parameters accordingly. To ensure correctness, FSDP
+        never need to fully materialize any parameter. However,           needs to recover the unsharded parameters before corresponding
+                                                                                                      24
+computations. Let us consider FSDP unit1 that contains [layer1,                                                                                                                                   350
+
+
+
+
+                                                                                                                                                                  Total Communication Time (ms)
+                                                                                                      23
+
+
+
+
+                                                                           Time per All-Gather (ms)
+layer2] to explain this process. Before forward computation enters                                                                                                                                300
+                                                                                                      22
+layer1, FSDP collects the unsharded parameters for layer1 and layer2                                                                                                                              250
+                                                                                                      21
+by gathering shards from other peer ranks. With the unsharded                                         20
+                                                                                                                                                                                                  200
+parameters, FSDP runs the local computation of those layers and                                       19                                                                                          150
+then frees the peer shards it just collected to reduce memory foot-                                   18                                                                                          100
+print. Therefore, during the entire forward pass, FSDP only needs                                          All-Gather Base All-Gather   All-Gather   All-Gather                                            3M 6M 268M 134M 67M 33M 16M 8M   4M
+                                                                                                                (Even)      (Even)      (1 Numel     (1e6 Numel                                         107 53
+to fully materialize one unit at a time, while all other units can                                                                       Uneven)       Uneven)                                                      Numel per All-Gather
+
+stay sharded. Similarly, during the backward computation, FSDP                                              (a) Uneven Input Sizes                                                                      (b) Reducing Input Size
+unit1 recovers the unsharded parameters for layer1 and layer2 be-
+fore backward reaches layer2. When the autograd engine finishes                                             Figure 2: Communication Efficiency vs. Input Size
+the backward computation of these two layers, FSDP frees the peer
+shards and launches ReduceScatter to reduce and shard gradients.
+Hence, after backward computation, each rank only keeps a shard
+of both parameters and gradients.
+   FSDP offers a wide spectrum of optimizations and knobs to              prepare the unsharded parameters before executing Tensor initializa-
+account for diverse model structures and hardware capabilities. The       tion operations and simultaneously reduce the memory footprint.
+remainder of this section delves further into the intricacies of model    Given that sharding initialization is unsafe, FSDP applies the same
+initialization, sharding strategies, communication optimizations,         approach as how it handles model forward and backward passes,
+and memory management, which are all critical components of               i.e., initialize one FSDP unit at a time and shard the unit before mov-
+FSDP’s underlying design.                                                 ing on to the next one. When combined with deferred initialization,
+                                                                          FSDP traverses the fake device model instance to decompose it into
+3.1    Model Initialization                                               FSDP units, moves one unit to a GPU device at a time, and replays
+                                                                          the recorded initialization operations for tensors in that FSDP unit.
+Before the advent of FSDP, PyTorch mandated the full materializa-
+tion of the entire model instance on one device. Although users can
+allocate different sub-modules to different devices, this would re-       3.2                                  Sharding Strategies
+quire modifying the model source code, which may not be feasible,         The sharding strategy is an important element in FSDP that plays
+particularly if model authors and application developers belong to        a significant role in determining the memory footprint and com-
+different parties. To facilitate a smooth transition from local to dis-   munication overhead. FSDP offers a variety of sharding strategies,
+tributed training, FSDP must effectively aid in the materialization       ranging from fully replicated to fully sharded. To generalize these
+and initialization of a massive model, which poses two challenges:        sharding strategies, we introduce the sharding factor 𝐹 as the num-
+      • How to create a model instance without materializing any          ber of ranks over which parameters are sharded. By setting the
+        tensor storage, postponing initialization until a storage on      sharding factor to 1, FSDP fully replicates the model and simplifies
+        a concrete device is attached to the tensor.                      to vanilla data parallelism that uses AllReduce for gradient reduction.
+      • How to ensure accurate initialization of model parame-            By setting the sharding factor equal to the number of devices (i.e.,
+        ters in line with the user’s implementation, even when the        global world size 𝑊 ), FSDP fully shards the model, with each device
+        model is too large to fit on a single GPU.                        only holding 𝑊1 of the model. Hybrid sharding occurs when the
+                                                                          sharding factor ranges between 1 and 𝑊 . The remainder of this
+    To overcome the first challenge, we have introduced a mecha-          section focuses on full sharding and hybrid sharding since the full
+nism called deferred initialization, which involves the allocation of     replication strategy is similar to the existing DDP [14].
+model parameter tensors on a simulated or "fake" device. During
+this process, all initialization operations performed on the tensor       3.2.1                                Full Sharding.
+are recorded. Subsequently, when the tensor is moved from the
+"fake" device to a GPU device, all recorded operations are auto-              The full sharding strategy leads to the lowest memory footprint
+matically replayed. By adopting this technique, users can generate        but incurs the most communication overhead, for example, full
+a model instance from any third-party library without allocating          sharding has 1.5x communication overhead and volume over DDP
+any GPU memory blocks, while still accurately capturing their             if using bandwidth optimal ring algorithm. Therefore, FSDP must
+parameter initialization implementations.                                 carefully organize communications to maximize its efficiency under
+    As illustrated in Figure 1, once the FSDP has wrapped the model,      this strategy.
+it is evenly distributed across all GPUs, with each device holding            We conducted two sets of experiments to understand the im-
+only one shard in its memory. Therefore, in order to address the          pact of input size on collective communication efficiency. Results
+second challenge, each rank should ideally only materialize and           are shown in Figure 2, which helped identify two ingredients for
+initialize the shard that it owns. However, this is not always practi-    efficiencies:
+cal, since we cannot predict what initialization logic the user will
+implement in the model init method. The initialization logic may                                       (1) Even Input Size: The Nvidia NCCL [22] library offers effi-
+rely on having a unsharded parameter on the device, which makes                                            cient collective implementations for all-gather and reduce-
+it impossible to shard the initialization. Consequently, FSDP must                                         scatter that require even input tensor sizes across ranks.
+                                   0         1        2        3                                  12
+                  weight           4         5        6        7                  bias            13
+                                                                                                       FlatParameter
+                                   8         9       10       11                                  14      0         1     2       3          4      5        6          7
+
+
+
+ 0    1   2   3    4       5   6         7       8        9        10   11       12     13   14                                                                                   Sharding Group
+                            FlatParameter
+                                                                                                               0              1              ...        7                         Replication Group
+                                                                                      Sharding Group           0              1                         7                         Local Shard
+      0             1              ...                    7                           Local Shard                                                                           i     Rank i
+      0                1                                  7                           Padding
+                                                                             i        Rank i                   8              9              ...        15
+                                                                                                               0              1                         7
+                                                                                                                                                                                Hybrid Sharding (F = 8)
+      8             9              ...                15
+                                                                                      Full Sharding
+      8                9
+                                                                                        (F = 16)
+                                                                                                       Figure 4: Hybrid Sharding on 16 GPUs: GPUs are configured
+                                                                                                       into 2 sharding groups and 8 replication groups
+              Figure 3: Full Sharding Across 16 GPUs
+
+
+                                                                                                          This flatten-concat-chunk algorithm permits each original pa-
+     (2) Larger Input Size: For fixed communication volume, batch-
+                                                                                                       rameter to have arbitrary shape while minimizing the required
+         ing data and issuing fewer collectives improves perfor-
+                                                                                                       padding (to be at most 𝐹 − 1), reflecting its generality. Moreover,
+         mance by avoiding the collectives’ launch overhead and
+                                                                                                       under this algorithm, the sharded and unsharded FlatParameter and
+         increasing network bandwidth utilization.
+                                                                                                       its gradient have the exact data layout expected by AllGather and
+   For (1), NCCL’s AllGather API requires even input tensor size                                       ReduceScatter, respectively. This enables calling the collectives with-
+and writes outputs into one single tensor. PyTorch’s ProcessGroup                                      out any additional copies for either the input or output tensors.
+wraps the NCCL API and enhances it by supporting uneven input                                             More formally, suppose for a model with Ψ number of elements,
+tensor sizes across ranks and allowing users to provide a list of                                      FSDP constructs 𝑁 FlatParameters with numels 𝜓 1, . . . ,𝜓 𝑁 , where
+                                                                                                         𝑖=1 𝜓 = Ψ. For sharding factor 𝐹 , the peak parameter memory
+output tensors. The flexibility comes with an efficiency trade-off,
+                                                                                                       ∑︁𝑁
+as shown in Figure 2 (a). We use All-Gather Base to denote NCCL’s                                                             ∑︁𝑁 𝜓𝑖
+                                                                                                       contribution is in 𝑂 ( 𝑖=1             𝑁
+AllGather behavior, and All-Gather to denote the one that takes a list
+                                                                                                                                     𝐹 + max𝑖=1 𝜓𝑖 ) because FSDP always
+                                                                                                                                                                                  𝜓
+of tensors as outputs. The latter incurs additional copies between                                     keeps each local sharded FlatParameter with size 𝐹𝑖 in GPU memory
+the individual output tensors and the consolidated single large                                        and must materialize each unsharded FlatParameter with size 𝜓𝑖 one
+                                                                                                                                                                     𝜓𝑖 = Ψ
+                                                                                                                                                               ∑︁𝑁
+output tensor before and after the communication. Moreover, for                                        by one during forward and backward. Since the first 𝑖=1
+uneven inputs, ProcessGroup mimics AllGather’s behavior using group                                    is fixed, the peak parameter memory contribution is determined by
+                                                                                                       max𝑖=1𝑁 𝜓 . At the same time, the number of collectives per iteration
+Broadcast, which is slower than All-Gather Base. In the experiments,                                              𝑖
+we created artificial unevenness by moving 1 element and 1𝑒6                                           is in 𝑂 (𝑁 ). This evidences FSDP’s memory-throughput trade-off:
+elements from rank 1 to rank 0 respectively. The results show that                                     Finer-grained FlatParameter construction decreases peak memory
+the All-Gather Base with even input size achieved highest efficiency.                                  but may decrease throughput by requiring more collectives. Users
+   For (2), Figure 2 (b) fixes the total communication to be 230 ≈                                     can control this trade-off by specifying how to wrap sub-modules
+1B FP32 elements and varies the size per All-Gather, i.e., smaller                                     into FSDP units.
+AllGather size means more AllGather invocations. Once the AllGather
+                                                                                                       3.2.2       Hybrid Sharding.
+size decreases below 33M elements, the total communication time
+begins increasing rapidly.
+                                                                                                          We refer to the strategy when the sharding factor is greater than
+   Thus, to deliver highly efficient communications, FSDP orga-
+                                                                                                       1 but less than 𝑊 as hybrid sharding, as it combines both sharding
+nizes all parameters within one FSDP unit into a large FlatParameter,
+                                                                                                       and replication. For global world size 𝑊 and sharding factor 𝐹 ,
+where the FlatParameter coalesces the communications of its indi-
+                                                                                                       the parameters are sharded within each group 𝑆 1, . . . , 𝑆𝑊 /𝐹 and
+vidual parameters and also evenly shards them across ranks. More
+                                                                                                       are replicated within each complementary group 𝑅1, . . . , 𝑅𝐹 , where
+specifically, the FlatParameter is a 1D tensor constructed by concate-
+                                                                                                       each 𝑆𝑖 , 𝑅 𝑗 ⊆ {1, . . . ,𝑊 } gives the ranks in the sharded or replicated
+nating 𝑝 flattened original parameters and padding on the right
+                                                                                                       group, respectively.
+to achieve a size divisible by the sharding factor. To shard the
+                                                                                                          For gradient reduction, the single reduce-scatter over all ranks
+FlatParameter, FSDP divides it into equal-sized chunks, where the
+                                                                                                       becomes a reduce-scatter within each of the sharded groups fol-
+number of chunks equals the sharding factor, and assigns one chunk
+                                                                                                       lowed by an all-reduce within each of the replicated groups to
+per rank. The FlatParameter’s gradient inherits the same unsharded
+                                                                                                       reduce the sharded gradients. The equivalence follows from the
+and sharded shapes from the FlatParameter, and the FlatParameter
+                                                                                                       decomposition
+and its gradient own the underlying storage of the original parame-
+                                                                                                                                      𝑊             𝑊 /𝐹 ∑︂
+ters and their gradients, respectively. Figure 3 depicts one example,                                                                 ∑︂            ∑︂
+where we use one FSDP unit to shard a 4 × 3 nn.Linear layer across                                                                           𝑔𝑟 =                𝑔𝑟 ,                                     (1)
+                                                                                                                                      𝑟 =1          𝑖=1 𝑟 ∈𝑆𝑖
+16 GPUs. In this case, every GPU only holds one element from the
+FlatParameter with the last rank holding the padded value.                                             where 𝑔𝑟 represents the gradient on rank 𝑟 .
+                                                                                                                                                         All-Gather (AG)
+   Hybrid sharding can take advantage of datacenter locality for                                                                                         Reduce-Scatter (RS)
+                                                                                       Forward                  Backward
+                                                                                                                                                         Forward Comp. (FWD)
+accelerated training and can reduce cross host traffic to avoid as                                                                                       Backward Comp. (BWD)
+much contention in the oversubscribed environment as possible. At             CPU 0 0 1 1        0 2 2 2   2    2 0 1   1   1 0 0                        Parameter Free
+                                                                                                                                                     i   FSDP Unit i
+the same time, it provides a graduating trade-off between memory
+                                                                           GPU Comp.
+saving and throughput degradation, which is particularly helpful             Stream              FWD0      FWD1 1FWD0 FWD2 2    BWD2   2BWD0             BWD1    1BWD00
+
+for models whose required memory footprint when trained with               GPU Comm.
+                                                                                         AG0       AG1         AG2      AG2              RS2   AG1         RS1            RS0
+                                                                             Stream
+full replication is just slightly above the device capacity and do not
+want full sharding. Figure 4 shows one example.
+                                                                                 Figure 5: Overlap Communication and Computation
+   Specifically, datacenters typically adopt a fat-tree network topol-
+ogy [16] with over-subscription, leading to abundant locality to
+exploit and a well-motivated reason to reduce cross-host traffic [17].
+Hybrid sharding can provide a natural mechanism to map the de-             3.3     Communication Optimizations
+vice mesh into the datacenter layout to exploit such locality. For
+                                                                           The FSDP framework incorporates a range of native communi-
+example, consider a cluster as a group of 𝑊 accelerators grouped
+                                                                           cation optimization techniques. This section unveils four major
+into hosts of of 𝐺 accelerators each (where the communication
+                                                                           ones: overlapping, backward pre-fetching, forward pre-fetching,
+among accelerators on the same host is much faster than the com-
+                                                                           and accumulation.
+munication across hosts), we can set 𝐹 = 𝑊     𝐺 to limit the AllGather
+(and ReduceScatter) operations within the same host, while creating        3.3.1   Overlapping Communication and Computation.
+a replication group for accelerators with the same local rank across
+hosts. For an 𝑀-sized model, we can then compute the total cross-             The PyTorch c10d library has a ProcessGroup abstraction that repre-
+host traffic per GPU in the hybrid setup to be 2𝑀 𝑊       −1
+                                                        𝐺𝑊 , a drastic     sents a group of processes that can run collectives together. For the
+                                              𝑊  −1
+reduction compared to full replication’s 2𝑀 𝑊 and full sharding’s          NCCL backend, the ProcessGroupNCCL implementation has an internal
+3𝑀 𝑊𝑊−1 . Additionally, since the AllReduce collectives used in hybrid     NCCL stream per device, where the separate internal stream is for
+sharding operates at a smaller world size, they empirically achieve        asynchronous execution with the current stream, which is typi-
+a better performance than invoking collectives at the global scale         cally the default stream running computation. Those asynchronous
+(in the case of full replication and full sharding), due to straggler      collectives return Work objects, where calling Work.wait() blocks the
+effects and larger network interference.                                   CPU thread until the collective finishes. For general correctness,
+   Another important design motivation for hybrid sharding is the          ProcessGroupNCCL synchronizes the internal stream with the current
+needs from medium-sized models. These models are large enough              stream before running the collective. DistributedDataParallel lever-
+to cause out of memory issues when trained with full replication           ages the async-collective-and-wait() approach to overlap the gradi-
+but are not large enough to fully utilize accelerator memory when          ent All-Reduces with backward computation. However, in contrast
+used with full sharding, leading to both runtime overhead and              to DDP’s backward where the AllReduce proceeds the computation
+memory waste. The hybrid sharding strategy creates a much richer           with which to overlap, FSDP’s forward issues the AllGather following
+memory-throughput trade-off space by simply adjusting 𝐹 .                  the computation with which to overlap since in eager execution,
+                                                                           FSDP cannot know which FlatParameter to AllGather next to reorder
+                                                                           it before the computation. This difference in kernel-issue order
+                                                                           makes following the async-collective-and-wait() approach infea-
+                                                                           sible for FSDP. Namely, since ProcessGroupNCCL synchronizes with
+3.2.3   Autograd.                                                          the current (default) stream, the All-Gather will not run until the
+                                                                           computation with which to overlap finishes. To address this, FSDP
+   FSDP’s FlatParameter must inter-operate with PyTorch’s autograd         uses a separate CUDA stream to issue the AllGathers, bypassing the
+engine to ensure (1) correct gradient propagation and (2) timely gra-      false dependency on preceding computation in the default stream
+dient reduction. For (1), recall that the FlatParameter and its gradient   and allowing each AllGather to overlap. As a result, FSDP’s collective
+own the underlying storage of the original parameters and their gra-       synchronization operates on streams, not simply Work objects. Fig-
+dients, respectively. To achieve this, before forward computation,         ure 5 illustrates one example. Note that the backward pass excludes
+FSDP sets the original parameters to be views into their unsharded         the AG0 All-Gather because FSDP intentionally keeps the outermost
+FlatParameter using autograd-visible torch.split() and torch.view()        FSDP unit’s parameters in memory to avoid redundantly freeing at
+calls. Then, the autograd engine naturally allocates the unsharded         the end of forward and then re-All-Gathering to begin backward.
+FlatParameter gradient and writes each original parameter’s gradi-
+ent to the appropriate offset as defined by torch.split()’s backward       3.3.2   Backward Prefetching.
+function. For (2), FSDP registers a gradient hook that only runs once
+the FlatParameter’s gradient is finalized. The hook represents the            FSDP enforces a single CUDA device per rank and uses a single
+post-backward logic and includes the gradient reduction. Notably,          process group for both AllGather and ReduceScatter, which means
+FSDP’s approach builds on top of PyTorch’s autograd engine in-             that its collectives run sequentially in the process group’s internal
+stead of hacking around it. As a result, FSDP automatically handles        NCCL stream. In the backward pass, FSDP issues the ReduceScatter
+unconventional cases such as when not all parameters are used in           for the current FlatParameter and then the AllGather for the next
+the forward or when there are multiple forwards before a backward.         FlatParameter. Hence, the single NCCL stream forces the ReduceScatter
+to block the next AllGather, which in turn blocks the next gradient     certain that a block is safe to reuse until the last GPU kernel depend-
+computation and may become exposed on the critical path.                ing on that memory finishes running. Hence, if the CPU thread
+   To avoid two consecutive exposed communication calls in the          runs far ahead of the GPU execution, then the caching allocator
+backward pass, FSDP backward prefetching issues the next AllGather      cannot reuse blocks for the producer stream with pending GPU
+before the current ReduceScatter. However, as mentioned before, a       kernels from the consumer stream.
+challenge for eager execution is knowing which FlatParameter to            Furthermore, caching allocator blocks are allocated per stream
+AllGather next. FSDP resolved this challenge by recording the reverse   and cannot be reused for a different stream, this over-allocates
+forward execution order of modules as the proxy of their backward       blocks to the producer stream that could otherwise be used for
+execution order. Moreover, the forward order is freshly recorded        the consumer stream (e.g. for activations). The GPU itself may
+each iteration, meaning that the backward prefetching is compatible     have enough memory to serve a new allocation in the consumer
+with dynamism across iterations.                                        stream, but the overallocation to the producer stream may lead
+                                                                        to the caching allocator failing to serve it. This forces a blocking
+3.3.3   Forward Prefetching.
+                                                                        sequence of cudaFrees to reset the caching allocator memory state
+                                                                        called a cudaMalloc retry that greatly degrades training throughput.
+   For some workloads with relatively slow CPU execution, the
+CPU thread may not be able to issue the next forward AllGather early    3.4.2    Rate Limiter.
+enough to efficiently fill the NCCL stream. If the model follows a
+static computational graph across iterations, then FSDP can assume         FSDP allocates the AllGather destination tensor representing the
+the forward execution order of modules from the previous itera-         unsharded FlatParameter in a producer stream, and the forward and
+tion and prefetch the next AllGather explicitly in the forward pass.    backward computations using the AllGathered parameters run in
+This forward prefetching issues the next AllGather before forward       a consumer stream (typically the default stream). For a fast CPU
+computation of current FSDP unit.                                       thread, there may be pending GPU computation kernels when the
+                                                                        caching allocator must serve the next AllGather, leading to no block
+3.3.4   Gradient Accumulation.                                          reuse. Even after the blocks are not active in the AllGather producer
+                                                                        stream, these reserved blocks can not serve default computation
+   FSDP offers two variations of gradient accumulation: with and        stream’s allocation requests, and thus may force blocking cudaFrees
+without communication. With communication, FSDP still reduces           and cudaMallocs.
+gradients across ranks, and each rank saves the sharded gradi-             FSDP offers a rate limiter that intentionally blocks the CPU
+ents. Simply running multiple iterations without clearing gradients     thread to ensure proper caching allocator block reuse. It allows at
+achieves this. Without communication, FSDP does not reduce gradi-       most two inflight AllGathers, which is the minimum amount to still
+ents across ranks, and each rank saves the unsharded gradients. This    achieve communication and computation overlap.
+latter variation trades off increased memory usage with decreased
+communication, which can increase end-to-end throughput.                4       IMPLEMENTATION
+                                                                        This section delves into the intricacies of FSDP implementation,
+3.4     Memory Management                                               which although do not alter the FSDP core algorithm, are crucial to
+PyTorch uses a CUDA caching allocator as a middle layer to serve        understand before adopting FSDP.
+GPU allocation and free requests for PyTorch programs. In order to         Users can access FSDP through two APIs, FullyShardedDataParallel
+effectively manage memory, FSDP uses a rate limiter to take into        model wrapper and fully_shard module annotator. The former wraps
+account the memory impact of the caching allocator on programs          the entire model and replaces sub-modules with corresponding
+that use several CUDA streams and run fast CPU threads.                 FSDP units. In contrast, the latter installs FSDP logic as nn.Module
+3.4.1   How Does PyTorch Caching Allocator Affect Memory.               forward and backward hooks, preserving both model structures
+                                                                        and parameter fully-qualified names.
+   The caching allocator avoids frequent calls to cudaMalloc and
+cudaFree, where the latter incurs a costly device synchronization.
+                                                                        4.1      Initialization
+Specifically, the caching allocator requests CUDA memory blocks         Section 3.2.1 described FSDP’s solution to efficiently initialize large
+and internally determines how to split and reuse the blocks without     models, which works well when sub-module initializations are self-
+returning them to CUDA with the goal being to reach a steady state      contained. In a rare situation where one sub-module’s initialization
+without further calls to cudaMalloc and cudaFree.                       depends on a parameter from the different sub-module, the on-
+   The caching allocator runs from the CPU thread, meaning that it      demand materialization and record-replay approach might break
+must decide which caching allocator block to use for an allocation      if the parameter belongs to a different FSDP unit, because the un-
+when the CPU thread processes the allocation request. It cannot         sharded version of that parameter could have been discarded to
+wait until the GPU kernel needing the allocation actually runs,         reduce memory footprint. Therefore, besides the advanced deferred
+which may be much later.                                                initialization, FSDP offers two more options:
+   For a single stream, the caching allocator can directly reuse mem-         • Initialize unsharded model on GPU. The memory re-
+ory blocks by the stream’s sequential ordering semantics. However,               quirement for model initialization may be smaller than that
+for separate producer and consumer streams, there are no inter-                  for training since training also involves gradients, activa-
+stream ordering guarantees, and the caching allocator cannot be                  tions, and optimizer states. Consequently, if the training
+        step cannot be performed on a single GPU device, users             to one FlatParameter, excluding those parameters already assigned.
+        might still be able to initialize the entire model on a GPU        This rule lends itself naturally to nested annotation, where blocks
+        and pass it to FSDP. Then, optimizers should be instanti-          are annotated, forming well-sized FlatParameters, and any residual
+        ated after FSDP shards the model, to reduce the memory             parameters are assigned to their parent.
+        footprint and align with the sharded gradients produced by            Another approach we explored is using the execution order
+        FSDP.                                                              and reconstructing FlatParameters dynamically. This approach starts
+      • Initialize unsharded model on CPU. If the size of the              with an initial small FlatParameter construction, runs a possibly in-
+        unsharded model surpasses the capacity of GPU memory               efficient first iteration while observing the execution order, and
+        and can only be accommodated in CPU memory, it becomes             reconstructs the FlatParameters by coalescing the existing small
+        impracticable to move the unsharded model entirely to the          FlatParameters according to the observed order.
+        GPU before handing it over to FSDP for parameter shard-
+        ing. To overcome this challenge, FSDP adopts a streaming
+        approach, where the model is migrated to the GPU unit by           4.3    Runtime
+        unit. Upon arrival to the GPU, the parameters of each unit         FSDP augments a local model instance by incorporating commu-
+        are immediately sharded, which in turn reduces the mem-            nication operations to reduce gradients and gather parameters.
+        ory overhead before processing the next unit. This approach        Timely initiation of these operations is of paramount importance
+        remains viable even when there are cross-submodule depen-          for ensuring both correctness and efficiency. Starting communi-
+        dencies during initialization, given that all parameters of        cation too soon would cause the parameters or gradients with
+        the entire unsharded model are present in the CPU memory.          pending updates to be consumed, while initiating communication
+                                                                           too late would result in wasting network bandwidth and delay in
+    Note that both approaches above are subject to their own limi-
+                                                                           subsequent computations.
+tations. The first method entails the entire model fitting within a
+                                                                              To insert communication-related code to the model forward pass,
+single GPU device and thus becomes infeasible for larger models.
+                                                                           the FullyShardedDataParallel nn.Module wrapper overrides nn.Module’s
+The second method, on the other hand, can handle larger models
+                                                                           forward() method to install pre-forward and post-forward logic,
+since the CPU has considerably larger memory. However, this ap-
+                                                                           whereas the functional fully_shard implements them by registering
+proach may experience substantial slowdowns in comparison to
+                                                                           nn.Module hooks through methods such as register_forward_pre_hook()
+deferred initialization due to the limited memory bandwidth and
+                                                                           and register_forward_hook(). It is more challenging to capture appro-
+parallelization capabilities of the CPU. In light of these observations,
+                                                                           priate signals from the backward pass, as PyTorch automatically
+users may still prefer deferred initialization, even when dealing
+                                                                           and transparently handles the backward pass. Fortunately, the auto-
+with models of the size range encompassed by the previous two
+                                                                           grad engine exposes a variety of hooks that enable the installation
+methods.
+                                                                           of custom logic with precise granularity.
+    To delimit the scope of each FSDP unit, users may choose to em-
+ploy the FullyShardedDataParallel wrapper by intrusively applying
+                                                                                 • Hooks on Tensor through register_hook() allows to run cus-
+it to sub-modules in model source code, or alternatively, provide a
+                                                                                   tom function when the gradient of a Tensor is generated.
+custom function to the auto_wrap_policy argument upon instantia-
+                                                                                   This can help anchor FSDP logic to an activation’s gradient
+tion. Selecting the optimal wrapping approach typically requires
+                                                                                   computation in the backward pass. FSDP registers this type
+some experiments and measurements.
+                                                                                   of hook to the forward output tensor of every FSDP unit
+                                                                                   to insert communications before backward pass enters that
+4.2    Flat Parameters                                                             FSDP unit.
+The FlatParameter class inherits from nn.Parameter and behaves like              • Hooks on backward() through queue_callback() run right be-
+an nn.Parameter. FSDP implements an accompanying FlatParamHandle                   fore exiting the current autograd GraphTask, which is usually
+class that is responsible for managing individual FlatParameter in-                the end of overall backward pass. FSDP relies on this hook
+stances. The frontend, either FullyShardedDataParallel or fully_shard,             to wait for pending communications so that the subsequent
+interfaces with the FlatParameters only through FlatParamHandle.                   optimizer step will not consume gradients too early.
+   One FlatParameter accommodates storage for all parameter ten-                 • Hooks on AccumulateGrad autograd function fires when the
+sors within one FSDP unit. The boundary of the FSDP unit controls                  gradient of a parameter has finished accumulation in the
+the timing for AllGather and ReduceScatter, which has a direct im-                 current backward pass. FSDP attaches this type of hook to
+pact on overall FSDP performance. In the ideal case, FSDP unit                     each FlatParameter’s AccumulateGrad function to immediately
+boundaries should align with model execution order.                                launch ReduceScatter when gradients are ready. Note that
+   FSDP has access to the model’s static nn.Module structure at con-               the Tensor hook mentioned above can potentially achieve
+struction time. Fortunately, although this structure does not guaran-              the same behavior, but might incur unnecessary delay as it
+tee to faithfully represent model execution order, model authors con-              needs to wait for gradient computations for input activa-
+ventionally translate layers and broader blocks to nested nn.Module                tions as well.
+definitions that may naturally have the desired parameter locality.
+FSDP can leverage that structure to choose the FlatParameter con-             The aforementioned methodologies collectively integrate the
+struction. Indeed, FSDP supports annotating nn.Modules and follows         FSDP algorithm with the PyTorch nn.Module and autograd engine in
+a simple rule: All parameters in the annotated nn.Module are assigned      a non-intrusive and efficient manner.
+4.4    Native Mixed Precision                                              T5-611M, T5-2B and T5-11B transformers to evaluate the perfor-
+FSDP offers a versatile native mixed precision mechanism. In terms         mance of various sharding strategies, communication efficiency
+of parameter management, it adheres to the standard mixed preci-           of prefetching, and communication throttling using rate limiter.
+sion technique, which maintains both low and full precision copies         Metrics employed in these experiments included TFLOPS per GPU,
+of parameters [18]. Forward and backward computation use the low           latency per batch, peak memory allocated, peak memory active,
+precision, and the optimizer step uses full precision. FSDP permits        and peak memory reserved.
+user-specified precisions for parameters, gradient reduction, and
+non-trainable buffers, each independently if desired.                      5.2    Model Scale
+    For Ψ number of parameter elements (torch.numel), 𝐾low bytes           In this section, we investigate the performance of FSDP when deal-
+per low precision element, and 𝐾full bytes per full precision element,     ing with models of different sizes, spanning from 611M to 175B,
+this approach to mixed precision normally increases the memory             and make a comparison with DDP [14].
+overhead from 𝐾full Ψ to (𝐾low + 𝐾full )Ψ due to maintaining both             The experimental results on T5 models are displayed in Fig-
+precision copies. However, FSDP can sidestep the problem given             ure 6 (a). The performance of FSDP and DDP is similar when evalu-
+our design to always keep each local sharded FlatParameter in GPU          ating 611M and 2.28B models. However, DDP encounters an out-of-
+memory and only dynamically allocate the unsharded FlatParameter.          memory error when attempting to wrap models larger than 2.28B.
+For 𝑁 FlatParameters with numels given by 𝜓 1, . . . ,𝜓 𝑁 , the param-     In contrast, FSDP can effortlessly accommodate the 11B model and
+eter peak memory contribution for FSDP actually decreases from             achieve significantly higher TFLOPS by turning on BF16. These ex-
+𝐾full ∑︁𝑁                 𝑁        𝐾full ∑︁𝑁               𝑁               periments illustrate that practitioners can utilize FSDP for both
+  𝐹     𝑖=1 𝜓𝑖 +𝐾full max𝑖=1 𝜓𝑖 to 𝐹       𝑖=1 𝜓𝑖 +𝐾low max𝑖=1 𝜓𝑖 bytes.
+In other words, FSDP directly reduces the second 𝐾full max𝑖=1     𝑁 𝜓
+                                                                      𝑖
+                                                                           small and large models, and seamlessly transition across different
+                    𝑁
+term to 𝐾low max𝑖=1 𝜓𝑖 .                                                   model configurations.
+    In contrast to torch.amp.autocast that performs just-in-time casts        Then, we conduct additional experiments to measure the accel-
+at the operator level, FSDP’s native mixed precision only incurs a         eration attained through backward pre-fetching. This time we use
+full-to-low-precision cast per FlatParameter in its pre-forward and,       a larger GPT-175B model, where communication overhead is more
+if resharding after forward, its pre-backward. Moreover, FSDP’s            prominent. Results are presented in Figure 6 (b), where pre-fetching
+mixed precision permits running all collectives in the low precision,      leads to approximately 18% speedup, and this TFLOPS gain per-
+which saves communication volume.                                          sists across different GPU cluster sizes. Therefore, for subsequent
+    Users most commonly choose FP16 or BF16 as the low precision           experiments, we always turn-on backward pre-fetching.
+and FP32 as the full precision. FP16’s smaller dynamic range com-
+pared that of FP32 exposes FP16 to greater risk of numeric underflow       5.3    Throttle Communications
+and overflow. The standard solution includes a gradient scaler [1]         In the subsequent analysis, we investigate the implications of throt-
+that scales gradients to a safe magnitude. However, since FSDP             tling FSDP communications. As expounded in Section 3.4, launching
+shards gradients across ranks, a normal local gradient scaler im-          AllGather too aggressively can lead to unnecessarily high memory
+plementation breaks mathematical equivalence, and instead, FSDP            footprint, as the CPU thread needs to allocate CUDA memory blocks
+provides its own sharded gradient scaler.                                  when the communication kernel is added into the CUDA stream.
+                                                                           This predicament may sometimes result in significant performance
+5     EVALUATION                                                           problems when the CPU thread runs too fast in comparison to
+We conducted an empirical evaluation of FSDP on large language             CUDA streams. To gauge its efficacy in varying scenarios, we apply
+models and recommendation system models and compared the re-               rate limiting to three different types of models and applied the
+sults with those of DDP. Experiment specifications are described in        maximum feasible batch size in each experiment.
+Section 5.1. Then, we organize experiments into three categories.                • RegNet [29]: model size 9B, and batch size 48 for 2 nodes
+Section 5.2 focuses on how well FSDP handles different sizes of                    and 72 for 4 nodes.
+models. Then, Section 5.3 discusses the impact of throttling commu-              • T5 [26]: model size 11B, and batch size 2.
+nications. Finally, Section 5.4 demonstrate FSDP’s ability to scale              • DeepViT [36]: model size 8B, and batch size 105 for 2 nodes
+to gigantic models.                                                                and 120 for 4 nodes.
+                                                                              Experiment results are plotted in Figure 6 (c). One notable ob-
+5.1    Experiment Setup                                                    servation is that the rate limiter’s effectiveness is not consistent,
+In these experiments, we conducted evaluations on the Hugging-             as it does not attain any speedups in the RegNet experiments,
+Face T5-11B transformer [26], minGPT-175B transformer [3], and             and even impedes the DeepViT ones. This behavior is expected
+DHEN recommendation model [33]. The recommendation models                  since throttling the communications can only boost training if the
+consist of 768B sparse parameters and 550M dense parameters, the           fast CPU thread aggressively allocates GPU memory blocks and
+sparse parameter tensors were sharded using the first approach             causes defragmentations. If it is difficult to identify with certainty
+mentioned in Section 2.3, which communicates activations instead           from latency measurements or profiled traces, CUDA malloc retry
+of parameters, while the dense parameters were trained using FSDP          can serve as a helpful indicator, which can be obtained from the
+on 8 to 512 A100 80GB GPUs interconnected by a 2Tb/s RoCE net-             num_alloc_retries key in the torch.cuda.memory_stats() dictionary.
+work. The objective was to assess the capability and scalability of           The experiments conducted with T5 models have demonstrated
+FSDP in training large-scale models. Additionally, we employed             that the rate limiter technique can greatly benefit training efficiency,
+                                                                    .48 81                                                                                                                                                                            79
+                                                                 148 145.                                                                                                                        70 .81                                            22.     64
+                                                                                                                                                                                              21. 21                                                   21.
+                                                                                            175                                                                                                                       Limit
+                       Full Sharding
+             140       Hybrid Sharding                                                                                                                                                                                No Limit
+                                                                                                                                                                                                                   61                      78
+
+
+
+
+                                                                                                                                               Median Latency per Batch (s)
+                                                                                                                                                                                                                18.                     18. 8.00
+                       Full Replication                                                     170                                                                               20
+             120       DDP                                                                                                                                                                                                                  1
+                                                                                            165                                                                                                                                    33
+                                                                                                                                                                                      81 80                                    15.
+                                                                                                                                                                                   14. 14.
+TFLOPS/GPU
+
+
+
+
+                                                                               TFLOPS/GPU
+             100                                                                                                                                                              15
+                                                                                            160
+              80                                                                                             Backward Prefetching
+                                                                                            155
+                                                                                                             No Prefetching                                                   10                             6
+              60                                                                                                                                                                                          8.3
+                                                                                            150
+                                                                                                                                                                                                                               2
+              40
+                                                  40 .70 6 4                                                                                                                                                             5.0
+                                               27. 27 25.726.0                              145                                                                                5
+                       18 28 61 65
+              20    15. 15. 14. 14.
+                                                                                            140
+               0                                                                                                                                                               0
+                      611M                        2.28B            11.3B                          128              256                   512                                        RegNet RegNet   T5     T5 DeepViTDeepViT
+                                          Model Size (Numel)                                                 Number of GPUs                                                         (2 Ms) (4 Ms) (2 Ms) (4 Ms) (2 Ms) (4 Ms)
+
+                                  (a) Model Scale                                                 (b) GPT-175B Backward Prefetch                                                   (c) Rate Limiter (Ms = Machines)
+
+                                                                             Figure 6: Model Scale and Training Efficiency
+
+
+yielding up to 5X speedups. However, for DeepViT models, intro-                                                          smallest memory footprint but with a corresponding trade-off of re-
+ducing communication throttling can result in an additional 5%                                                           duced QPS. Conversely, Hybrid Sharding with NRAF demonstrated
+overhead. This is due to the fact that delaying the AllGather com-                                                       the opposite behavior, as it has employs both a smaller sharding
+munication can potentially block subsequent model computations                                                           group and skips one reshard. When adding more GPUs to in the
+that rely on the AllGathered parameters, especially in cases where                                                       cluster, the peak memory usage consistently decreases as a result
+communication is the dominant factor. Therefore, before enabling                                                         of a decrease in the size of each rank’s model shard.
+rate limiting, practioners should verify whether defragmentation                                                            With the 175B model, the experiments achieved more than 173
+has taken place during training.                                                                                         and 186 TFLOPS per GPU with batch size equal to 1 and 2 respec-
+                                                                                                                         tively as shown in Figure 7 (b). This is equivalent to approximately
+5.4                 Efficient Training for Large Models                                                                  55% and 60% of GPU hardware utilization, given that the A100’s
+To evaluate capability of using FSDP for large models, we ran three                                                      peak is 312 TFLOPS using the BF16 tensor core. Furthermore, the
+types of models using Full Sharding with prefetching and rate lim-                                                       model demonstrated linear scalability from 128 GPUs to 512 GPUs,
+iter turned on. Activation checkpointing and BF16 mixed precision                                                        in terms of TFLOPS, which affirms the efficacy of FSDP in handling
+are also applied in these experiments. Adam optimizer is used to                                                         large models with expensive computations or high-speed network
+reflect a production workload setup and to incur the costly two                                                          interconnections. Notably, with 128 GPUs, setting the batch size to
+optimizer states per parameter.                                                                                          2 resulted in a considerably lower per-GPU TFLOPs in comparison
+                                                                                                                         to other scenarios. This was due to CUDA memory defragmentation
+                   • DHEN large recommendation model [33]: model size -
+                                                                                                                         during the backward pass. The backward pass contributed 85.56%
+                     768B sparse parameters and 550M dense parameters, and
+                                                                                                                         of the iteration latency for the 128 GPU batch size equals 2 case,
+                     batch size 1024.
+                                                                                                                         while a normal backward pass only accounted for about 67% in
+                   • minGPT transformer [10]: model size 175B, vocab size
+                                                                                                                         these experiments. Using 128 GPUs is more likely to trigger de-
+                     50000, block size 2048, batch size 1 and 2 for 128, 192, 256,
+                                                                                                                         fragmentation, as each GPU needs to accommodate a larger model
+                     384 and 512 GPUs.
+                                                                                                                         shard. Figure 8 confirms this explanation, where the PyTorch CUDA
+                   • HuggingFace T5 transformer [26]: model size 11B, se-
+                                                                                                                         caching allocator depletes all 80GB of the CUDA memory as shown
+                     quence length 512, batch size 8 and 16 for 8, 16, 32, 64, 128,
+                                                                                                                         on the top left corner.
+                     256, 512 GPUs.
+                                                                                                                            Finally, for T5-11B models as shown in Figure 8 (c), all exper-
+   In the DHEN experiments, we further combine sharding strate-                                                          iments are executed comfortably below GPU memory capacity,
+gies with two different configurations:                                                                                  where defragmentations are unlikely to happen. Nevertheless, as
+                   • RAF: reshard-after-forward frees AllGathered shards from                                            the number of GPUs increases from 8 to 512, a 7% regression in
+                     other GPUs after forward pass and unshards them again                                               per-GPU TFLOPS is still evident as illustrated in Figure 7 (c). This
+                     before backward computation. This reduces peak memory                                               suggests that communications begin to outweigh computations on
+                     consumption at the cost of higher communication overhead.                                           large clusters, and a near-perfect overlap between communication
+                   • NRAF: no-reshard-after-forward is the opposite where the                                            and computation is no longer attainable.
+                     unsharded model parameters stay in GPU memory after
+                     forward pass until backward computations finish, which                                              6   RELATED WORK
+                     trades higher memory footprint for lower communication                                              The DDP [14] model wrapper, which is based on the model replica-
+                     overhead.                                                                                           tion design, was an initial distributed training feature introduced
+   The experimental results in Figure 7 (a) and Figure 8 (a) indicate                                                    in PyTorch [24]. Although it can handle large datasets, it cannot ac-
+that FSDP is capable of accommodating DHEN models on a large                                                             commodate the ever-increasing model sizes that are now prevalent
+GPU cluster. It was observed that Full Sharding with RAF yields the                                                      in the field.
+                    4400
+                                                                                                               180                                                                                             154
+                    4200
+                                                                                                                                                                                                               152
+
+
+
+
+                                                                                            TFLOPS / GPU
+
+
+
+
+                                                                                                                                                                                            TFLOPS / GPU
+                    4000                                                                                       160
+                                                                                                                                                                                                               150
+P90 QPS
+
+
+
+
+                    3800
+                                                                                                               140                                                                                             148
+                    3600
+
+                    3400                                                                                                                                                                                       146
+                                                                                                               120
+
+                    3200         Full Sharding (RAF)                                                                                                                                                           144
+                                 Full Sharding (NRAF)
+                                 Hybrid Sharding (RAF)                                                         100
+                    3000                                                                                                                                                            B=1                        142       B=8
+                                 Hybrid Sharding (NRAF)                                                                                                                             B=2                                  B = 16
+                    2800
+                            32              64            128      256                512                            128         192          256         320         384     448     512                            8         16           32     64         128    256   512
+                                            Number of 80 GB A100s                                                                      Number of 80 GB A100s                                                                         Number of 80 GB A100s
+
+                                           (a) DHEN QPS                                                                        (b) GPT-175B TFLOPS                                                                                (c) T5-11B TFLOPS
+
+                           Figure 7: Training Throughput: To conform with DHEN convention, we use sample/ GPU/second (QPS) for DHEN.
+
+                                                                                                                                                                                                               60
+                                                                Full Sharding (RAF)                            80
+                    70                                          Full Sharding (NRAF)
+                                                                Hybrid Sharding (RAF)                          70                                                                                              50
+                                                                Hybrid Sharding (NRAF)
+ Peak Memory (GB)
+
+
+
+
+                                                                                            Peak Memory (GB)
+
+
+
+
+                                                                                                                                                                                            Peak Memory (GB)
+                                                                                                               60
+                    60                                                                                                                                                                                         40
+                                                                                                               50
+
+                                                                                                                                                                                                               30
+                    50                                                                                         40
+
+                                                                                                               30
+                                                                                                                                                                                                               20
+                    40
+                                                                                                               20
+                                                                                                                           Alloc (B = 1)             Alloc (B = 2)                                             10        Alloc (B = 8)           Alloc (B = 16)
+                                                                                                               10          Active (B = 1)            Active (B = 2)                                                      Active (B = 8)          Active (B = 16)
+                    30                                                                                                     Reserved (B = 1)          Reserved (B = 2)                                                    Reserved (B = 8)        Reserved (B = 16)
+                                                                                                                0                                                                                               0
+                           32              64             128      256                512                              150       200        250     300         350     400   450   500                              8         16           32     64         128    256   512
+                                           Number of 80 GB A100s                                                                       Number of 80 GB A100s                                                                         Number of 80 GB A100s
+
+                                                 (a) DHEN                                                                                  (b) GPT-175B                                                                                   (c) T5-11B
+
+                                                                                                                      Figure 8: Memory Footprint
+
+
+    ZeRO [27, 28] and cross-replica sharding [30] inspired the FSDP                                                                                             participants of AllGather to accelerators within a group with good
+design, but FSDP is intrinsically different. Prior work employs                                                                                                 locality can result in lower latency and higher throughput.
+model partitioning or per-parameter sharding to distribute param-                                                                                                  Pipeline parallelism [5, 8] involves partitioning model parame-
+eter tensors, and rely on Broadcast and Gather collective communi-                                                                                              ters and their activations across multiple devices through the divi-
+cation primitives to synchronize values. Although this design can                                                                                               sion of models into pipeline stages. However, pipeline parallelism
+achieve the same functionality, it could lead to uneven workload                                                                                                requires model changes and meticulous tuning for microbatch sizes,
+distribution across GPU devices, which hampers the efficiency of                                                                                                number of stages and partitions, as well as intricate scheduling
+synchronized distributed training. Additionally, since this approach                                                                                            procedures to optimize performance by squeezing out bubbles.
+modifies the internals of the machine learning framework, such as                                                                                                  Additionally, specific attention is given to high profile architec-
+tensor storage and memory management, it might no longer work                                                                                                   tures such as transformers. For example, sequence parallelism [13]
+when the internal implementation is updated or new features are                                                                                                 reduces activation memory in conjunction with tensor parallelism;
+introduced. Therefore, a native solution that is co-designed with the                                                                                           Pipetransformer [6] designed a dynamic 2D parallelism that allows
+core components of the framework would provide a more robust                                                                                                    changing the dimensions of pipeline and data parallelism on the fly,
+and consistent user experience.                                                                                                                                 depending on learning signals. These methods are highly effective
+    MiCS [34] and FSDP differ in gradient communication strategies.                                                                                             but can be difficult to generalize as they either rely on the specific
+MiCS uses a global AllReduce followed by sharding within each par-                                                                                              implementation or the model’s layered structure.
+tition group, whereas FSDP employs AllGather and ReduceScatter. As                                                                                                 Many existing solutions combine data parallelism with other par-
+a result, each rank in MiCS must hold the entire model gradients,                                                                                               allelisms to achieve speedup. For example, Megatron [21] demon-
+leading to higher memory usage than FSDP’s approach of sharding                                                                                                 strated highly efficient deep transformer training on large clusters
+a single layer. While both MiCS and FSDP use a hybrid commu-                                                                                                    using 3D (data, tensor and pipeline) parallelism. Further, compiler-
+nication strategy to improve efficiency at scale, FSDP’s approach                                                                                               based techniques such as Alpa [35], GSPMD [31], and FlexFlow [9]
+schedules AllGather within a flexibly-sized sharded group, poten-                                                                                               leverage profiling, performance modeling, user annotations and
+tially resulting in lower runtime latency than the two-hop AllGather                                                                                            search to find the best configuration across the parallelism space of
+utilized by MiCS. This reduced latency is crucial as the AllGather
+operation is critical to execution, and limiting the world size and
+data, tensor and pipeline for a given cluster. In all cases, FSDP pro-   7.2.1    Mathematical Equivalence.
+vides the benefit of being a drop-in replacement for data parallelism
+that reduces data redundancy along the data parallel axis.                  FSDP cannot ensure that it always achieves the same mathe-
+   Orthogonal memory-saving techniques include gradient com-             matical equivalence as local training, especially with respect to
+pression [2], mixed-precision training [7], tensor rematerializa-        the optimizer computation. This stems from the fact that the op-
+tion [12] and CPU-offloading [4], but they could have implications       timizer step operates on the sharded parameters, whose data lay-
+on model accuracy and incur overhead in (un)compression, quanti-         out is a function of FSDP’s FlatParameter sharding algorithm that
+zation, recomputation, and host-to-device copies, respectively.          does not respect individual parameter boundaries. As a result, any
+                                                                         optimizer computation that depends on an original parameter’s
+7       DISCUSSION                                                       unsharded value (e.g. vector norm), its tensor structure (e.g. approx-
+                                                                         imate second-order optimizers), or require global states over all
+This section discusses how FSDP can be combined with other par-
+                                                                         parameters will become invalid. Addressing this requires uneven
+allelism paradigms and known limitations when adopting FSDP.
+                                                                         sharding, padding, or extra communication, all of which hurt perfor-
+                                                                         mance. Co-designing such optimizer computations with sharding
+7.1      FSDP Interoperability                                           is an open research question.
+Further increasing scalability and efficiency of distributed training
+requires combining FSDP with other paradigms. This section briefly       7.2.2    Shared Parameters.
+highlights how the FSDP design enables mixing and matching with
+other types of parallelisms.                                                For shared parameters, FSDP must ensure to not flatten them into
+                                                                         multiple FlatParameters and to ensure that they are unsharded prop-
+7.1.1    Pipeline Parallelism.                                           erly when needed for all usages. If handled incorrectly, PyTorch may
+                                                                         raise an error regarding missing tensor storage or size mismatch,
+   Pipeline parallel can be functionally integrated with FSDP by         which can happen when an FSDP unit attempts to use a shared pa-
+employing FSDP to wrap each individual pipeline stage. However,          rameter that has already been resharded by a preceding FSDP unit.
+as pipeline parallel divides input mini-batches into smaller micro-      The current recommendation is to construct FSDP units such that
+batches, the default full sharding strategy in FSDP would have to        the shared parameter belongs to the lowest-common-ancestor unit
+unshard model parameters for every micro-batch. Consequently,            to ensure that the shared parameter is unsharded throughout all
+combining these approaches with default FSDP configurations may          usages. This may require some inspection of the model structure to
+lead to significant communication overhead. Fortunately, FSDP            do correctly and may undesirably keep the FlatParameter unsharded
+offers alternative sharding strategies that can keep parameters          for a large interval, so we are investigating approaches to improve
+unsharded after the forward pass, avoiding unnecessary AllGather         shared parameter handling.
+communications per micro-batch. Admittedly, this requires stor-
+ing parameters of an entire pipeline stage on the GPU device, but        8       CONCLUSION
+FSDP can still reduce memory usage as it still shards gradients and      This manuscript elucidates the underlying rationale, design philos-
+optimizer states.                                                        ophy, and implementation of FullyShardedDataParallel as of PyTorch
+                                                                         2.0 release. FSDP attains usability and efficiency through a set of ad-
+7.1.2    Tensor Parallelism.
+                                                                         vanced techniques, including deferred initialization, flexible shard-
+                                                                         ing strategies, communication overlapping and prefetching, and
+   In contrast to FSDP, tensor parallel keeps parameters sharded
+                                                                         rate limiting communication collectives. All of these techniques are
+during computation, which is necessary if any sub-module is too
+                                                                         closely co-designed with other key PyTorch components to ensure
+large to fit in GPU memory. Presently, PyTorch provides a prototype
+                                                                         the solution is sound and robust. Evaluations show that FSDP can
+feature called parallelize_module that can be combined with FSDP
+                                                                         facilitate large language and recommendation models with near
+to construct 2D parallelism. It works by organizing devices into
+                                                                         linear scalability.
+a 2D mesh where PyTorch’s distributed tensor DTensor manages
+tensor parallelism on one dimension and FSDP applies sharded
+data parallelism on the other dimension. These two dimensions            ACKNOWLEDGMENTS
+communicate activations and parameters, respectively. We usually         We are grateful to the PyTorch community and PyTorch FSDP users
+keep the tensor-parallel communications, which block subsequent          for their feedback and contributions.
+computation, intra-node to leverage the higher network bandwidth,
+and allow the FSDP communications operate on the other mesh              REFERENCES
+dimension inter-node.                                                     [1] 2023. torch.amp Gradient Scaling. https://pytorch.org/docs/2.0/amp.html#
+                                                                              gradient-scaling.
+                                                                          [2] Youhui Bai, Cheng Li, Quan Zhou, Jun Yi, Ping Gong, Feng Yan, Ruichuan Chen,
+7.2      Limitations                                                          and Yinlong Xu. 2021. Gradient compression supercharged high-performance
+                                                                              data parallel dnn training. In Proceedings of the ACM SIGOPS 28th Symposium on
+During our work with production and research applications, we                 Operating Systems Principles. 359–375.
+have encountered certain limitations associated with FSDP. This sec-      [3] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan,
+                                                                              Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+tion aims to discuss two tricky caveats that are not readily apparent         Askell, et al. 2020. Language models are few-shot learners. Advances in neural
+and pose significant challenges when it comes to troubleshooting.             information processing systems 33 (2020), 1877–1901.
+ [4] Jiarui Fang, Zilin Zhu, Shenggui Li, Hui Su, Yang Yu, Jie Zhou, and Yang You. 2022.        the 27th ACM Symposium on Operating Systems Principles. 1–15.
+     Parallel Training of Pre-Trained Models via Chunk-Based Dynamic Memory                [21] Deepak Narayanan, Mohammad Shoeybi, Jared Casper, Patrick LeGresley,
+     Management. IEEE Transactions on Parallel and Distributed Systems 34, 1 (2022),            Mostofa Patwary, Vijay Korthikanti, Dmitri Vainbrand, Prethvi Kashinkunti,
+     304–315.                                                                                   Julie Bernauer, Bryan Catanzaro, et al. 2021. Efficient large-scale language model
+ [5] Aaron Harlap, Deepak Narayanan, Amar Phanishayee, Vivek Seshadri, Nikhil                   training on gpu clusters using megatron-lm. In Proceedings of the International
+     Devanur, Greg Ganger, and Phil Gibbons. 2018. Pipedream: Fast and efficient                Conference for High Performance Computing, Networking, Storage and Analysis.
+     pipeline parallel dnn training. arXiv preprint arXiv:1806.03377 (2018).                    1–15.
+ [6] Chaoyang He, Shen Li, Mahdi Soltanolkotabi, and Salman Avestimehr. 2021.              [22] NVIDIA. 2023. The NVIDIA Collective Communication Library (NCCL). https:
+     Pipetransformer: Automated elastic pipelining for distributed training of trans-           //developer.nvidia.com/nccl.
+     formers. arXiv preprint arXiv:2102.03161 (2021).                                      [23] OpenAI. 2023. ChatGPT. https://chat.openai.com/.
+ [7] Xin He, Jianhua Sun, Hao Chen, and Dong Li. 2022. Campo: Cost-Aware Per-              [24] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gre-
+     formance Optimization for Mixed-Precision Neural Network Training. In 2022                 gory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga,
+     USENIX Annual Technical Conference (USENIX ATC 22). USENIX Association,                    Alban Desmaison, Andreas Kopf, Edward Yang, Zachary DeVito, Martin Raison,
+     Carlsbad, CA, 505–518. https://www.usenix.org/conference/atc22/presentation/               Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu Fang, Junjie Bai, and
+     he                                                                                         Soumith Chintala. 2019. PyTorch: An Imperative Style, High-Performance Deep
+ [8] Yanping Huang, Youlong Cheng, Ankur Bapna, Orhan Firat, Dehao Chen, Mia                    Learning Library. In Advances in Neural Information Processing Systems 32. Cur-
+     Chen, HyoukJoong Lee, Jiquan Ngiam, Quoc V Le, Yonghui Wu, et al. 2019.                    ran Associates, Inc., 8024–8035. http://papers.nips.cc/paper/9015-pytorch-an-
+     Gpipe: Efficient training of giant neural networks using pipeline parallelism.             imperative-style-high-performance-deep-learning-library.pdf
+     Advances in neural information processing systems 32 (2019).                          [25] Team PyTorch. 2023. DISTRIBUTED RPC FRAMEWORK. https://pytorch.org/
+ [9] Zhihao Jia, Matei Zaharia, and Alex Aiken. 2018. Beyond Data and Model                     docs/stable/rpc.html.
+     Parallelism for Deep Neural Networks. https://doi.org/10.48550/ARXIV.1807.            [26] Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang,
+     05358                                                                                      Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. 2020. Exploring the
+[10] Andrej Karpathy. 2020. MinGPT Transformer model. https://github.com/                       limits of transfer learning with a unified text-to-text transformer. The Journal of
+     karpathy/minGPT.                                                                           Machine Learning Research 21, 1 (2020), 5485–5551.
+[11] Chiheon Kim, Heungsub Lee, Myungryong Jeong, Woonhyuk Baek, Boogeon                   [27] Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. 2020. Zero:
+     Yoon, Ildoo Kim, Sungbin Lim, and Sungwoong Kim. 2020. torchgpipe: On-the-fly              Memory optimizations toward training trillion parameter models. In SC20: Inter-
+     pipeline parallelism for training giant models. arXiv preprint arXiv:2004.09910            national Conference for High Performance Computing, Networking, Storage and
+     (2020).                                                                                    Analysis. IEEE, 1–16.
+[12] Marisa Kirisame, Steven Lyubomirsky, Altan Haan, Jennifer Brennan, Mike               [28] Jie Ren, Samyam Rajbhandari, Reza Yazdani Aminabadi, Olatunji Ruwase,
+     He, Jared Roesch, Tianqi Chen, and Zachary Tatlock. 2020. Dynamic Tensor                   Shuangyan Yang, Minjia Zhang, Dong Li, and Yuxiong He. 2021. ZeRO-Offload:
+     Rematerialization. https://doi.org/10.48550/ARXIV.2006.09616                               Democratizing Billion-Scale Model Training.. In USENIX Annual Technical Con-
+[13] Vijay Korthikanti, Jared Casper, Sangkug Lym, Lawrence McAfee, Michael An-                 ference. 551–564.
+     dersch, Mohammad Shoeybi, and Bryan Catanzaro. 2022. Reducing activation              [29] Nick Schneider, Florian Piewak, Christoph Stiller, and Uwe Franke. 2017. Reg-
+     recomputation in large transformer models. arXiv preprint arXiv:2205.05198                 Net: Multimodal sensor registration using deep neural networks. In 2017 IEEE
+     (2022).                                                                                    intelligent vehicles symposium (IV). IEEE, 1803–1810.
+[14] Shen Li, Yanli Zhao, Rohan Varma, Omkar Salpekar, Pieter Noordhuis, Teng Li,          [30] Yuanzhong Xu, HyoukJoong Lee, Dehao Chen, Hongjun Choi, Blake Hechtman,
+     Adam Paszke, Jeff Smith, Brian Vaughan, Pritam Damania, et al. 2020. Pytorch               and Shibo Wang. 2020. Automatic cross-replica sharding of weight update in
+     distributed: Experiences on accelerating data parallel training. arXiv preprint            data-parallel training. arXiv preprint arXiv:2004.13336 (2020).
+     arXiv:2006.15704 (2020).                                                              [31] Yuanzhong Xu, HyoukJoong Lee, Dehao Chen, Blake Hechtman, Yanping Huang,
+[15] Zhuohan Li, Siyuan Zhuang, Shiyuan Guo, Danyang Zhuo, Hao Zhang, Dawn                      Rahul Joshi, Maxim Krikun, Dmitry Lepikhin, Andy Ly, Marcello Maggioni, et al.
+     Song, and Ion Stoica. 2021. Terapipe: Token-level pipeline parallelism for training        2021. GSPMD: general and scalable parallelization for ML computation graphs.
+     large-scale language models. In International Conference on Machine Learning.              arXiv preprint arXiv:2105.04663 (2021).
+     PMLR, 6543–6552.                                                                      [32] Jinhui Yuan, Xinqi Li, Cheng Cheng, Juncheng Liu, Ran Guo, Shenghang Cai, Chi
+[16] Ming Liu, Liang Luo, Jacob Nelson, Luis Ceze, Arvind Krishnamurthy, and                    Yao, Fei Yang, Xiaodong Yi, Chuan Wu, et al. 2021. Oneflow: Redesign the dis-
+     Kishore Atreya. 2017. Incbricks: Toward in-network computation with an in-                 tributed deep learning framework from scratch. arXiv preprint arXiv:2110.15032
+     network cache. In Proceedings of the Twenty-Second International Conference                (2021).
+     on Architectural Support for Programming Languages and Operating Systems.             [33] Buyun Zhang, Liang Luo, Xi Liu, Jay Li, Zeliang Chen, Weilin Zhang, Xiaohan
+     795–809.                                                                                   Wei, Yuchen Hao, Michael Tsang, Wenjun Wang, Yang Liu, Huayu Li, Yasmine
+[17] Liang Luo, Peter West, Jacob Nelson, Arvind Krishnamurthy, and Luis Ceze. 2020.            Badr, Jongsoo Park, Jiyan Yang, Dheevatsa Mudigere, and Ellie Wen. 2022. DHEN:
+     Plink: Discovering and exploiting locality for accelerated distributed training on         A Deep and Hierarchical Ensemble Network for Large-Scale Click-Through Rate
+     the public cloud. Proceedings of Machine Learning and Systems 2 (2020), 82–97.             Prediction. https://doi.org/10.48550/ARXIV.2203.11014
+[18] Paulius Micikevicius, Sharan Narang, Jonah Alben, Gregory Diamos, Erich               [34] Zhen Zhang, Shuai Zheng, Yida Wang, Justin Chiu, George Karypis, Trishul
+     Elsen, David Garcia, Boris Ginsburg, Michael Houston, Oleksii Kuchaiev, Ganesh             Chilimbi, Mu Li, and Xin Jin. 2022. MiCS: near-linear scaling for training gigantic
+     Venkatesh, and Hao Wu. 2017. Mixed Precision Training. https://doi.org/10.                 model on public cloud. arXiv preprint arXiv:2205.00119 (2022).
+     48550/ARXIV.1710.03740                                                                [35] Lianmin Zheng, Zhuohan Li, Hao Zhang, Yonghao Zhuang, Zhifeng Chen, Yan-
+[19] Dheevatsa Mudigere, Yuchen Hao, Jianyu Huang, Andrew Tulloch, Srinivas                     ping Huang, Yida Wang, Yuanzhong Xu, Danyang Zhuo, Eric P Xing, et al.
+     Sridharan, Xing Liu, Mustafa Ozdal, Jade Nie, Jongsoo Park, Liang Luo, et al.              2022. Alpa: Automating Inter-and { Intra-Operator } Parallelism for Distributed
+     2021. High-performance, distributed training of large-scale deep learning rec-             Deep Learning. In 16th USENIX Symposium on Operating Systems Design and
+     ommendation models. arXiv preprint arXiv:2104.05158 (2021).                                Implementation (OSDI 22). 559–578.
+[20] Deepak Narayanan, Aaron Harlap, Amar Phanishayee, Vivek Seshadri, Nikhil R            [36] Daquan Zhou, Bingyi Kang, Xiaojie Jin, Linjie Yang, Xiaochen Lian, Zihang Jiang,
+     Devanur, Gregory R Ganger, Phillip B Gibbons, and Matei Zaharia. 2019.                     Qibin Hou, and Jiashi Feng. 2021. Deepvit: Towards deeper vision transformer.
+     PipeDream: Generalized pipeline parallelism for DNN training. In Proceedings of            arXiv preprint arXiv:2103.11886 (2021).
+

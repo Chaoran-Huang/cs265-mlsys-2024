@@ -1,0 +1,960 @@
+    Semantic Operators and Their Optimization: Enabling
+LLM-Based Data Processing with Accuracy Guarantees in LOTUS
+              Liana Patel                              Siddharth Jha                                Melissa Pan                         Harshit Gupta
+         Stanford University                            UC Berkeley                                 UC Berkeley                      Stanford University
+       lianapat@stanford.edu                        sidjha@berkeley.edu                       melissapan@berkeley.edu               gharshit@stanford.edu
+
+                                  Parth Asawa                             Carlos Guestrin                            Matei Zaharia
+                                 UC Berkeley                            Stanford University                           UC Berkeley
+                            pgasawa@berkeley.edu                       guestrin@stanford.edu                       matei@berkeley.edu
+
+ABSTRACT                                                                                      PVLDB Artifact Availability:
+The semantic capabilities of large language models (LLMs) have the                            The source code, data, and/or other artifacts have been made available at
+potential to enable rich analytics and reasoning over vast knowl-                             https://github.com/lotus-data/lotus.
+edge corpora. Unfortunately, existing systems either empirically
+optimize expensive LLM-powered operations with no performance
+guarantees, or limit their support to simple batched-inference prim-                          1    INTRODUCTION
+itives. We introduce semantic operators, the rst formalism with                              The powerful semantic capabilities of modern language models
+statistical accuracy guarantees for general-purpose AI-based op-                              (LLMs) create exciting opportunities for building AI-based ana-
+erations with natural language parameters (e.g., ltering, sorting,                           lytics systems that reason over vast knowledge corpora. Many
+joining or aggregating records using natural language criteria). Each                         applications require complex reasoning over large amounts of data,
+operator can be implemented by multiple AI algorithms, which com-                             including both unstructured and structured data. For example a re-
+pose individual model invocations to orchestrate the model over                               searcher reviewing recent ArXiv [2] preprints may want to quickly
+the data. Our programming model species the expected behav-                                  obtain a summary of relevant papers from the past week, or nd
+ior of each operator with a high-quality reference algorithm, and                             the papers that report the best performance for a particular task
+we develop an optimization framework that reduces cost, while                                 and dataset. Similarly, a medical professional may automatically
+providing accuracy guarantees for individual operators. Using this                            extract biomedical characteristics and candidate diagnoses from
+approach, we propose several novel optimizations to accelerate                                many patient reports [29]. Likewise, organizations wish to automat-
+semantic ltering, joining, group-by and top-k operations by up                               ically digest lengthy transcripts from internal meetings and chat
+to 1, 000⇥. We implement semantic operators in the LOTUS sys-                                 histories to validate hypotheses about their business [4].
+tem and demonstrate LOTUS’ eectiveness on real, bulk-semantic                                   Each of these tasks require a form of bulk semantic processing,
+processing applications, including fact-checking, biomedical multi-                           where the analytics system must process large amounts of data
+label classication, search, and topic analysis. We show that the                             and orchestrate models in complex patterns across a whole dataset.
+semantic operator model is expressive, capturing state-of-the-art                             Supporting the full generality of these applications with ecient,
+AI pipelines in a few operator calls, and making it easy to express                           easy-to-use analytics systems would have a transformative impact,
+new pipelines that match or exceed quality of recent LLM-based                                similar to what RDBMSes had for tabular data. This prospect, how-
+analytic systems by up to 170%, while oering accuracy guarantees.                            ever, raises two challenging questions: rst, how should developers
+Overall, LOTUS programs match or exceed the accuracy of state-of-                             express semantic queries, and secondly, how should we design the
+the-art AI pipelines for each task while running up to 3.6⇥ faster                            underlying data system to achieve high eciency and accuracy.
+than the highest-quality baselines. LOTUS is publicly available at                               Unfortunately, existing systems are insucient for bulk semantic
+https://github.com/lotus-data/lotus.                                                          processing, either limiting their expressiveness to simple batched
+                                                                                              inference primitives or providing no accuracy guarantees. First, sev-
+PVLDB Reference Format:                                                                       eral systems only support simple batched inference primitives [1,
+Liana Patel, Siddharth Jha, Melissa Pan, Harshit Gupta, Parth Asawa,                          8, 9, 14, 46, 47, 49, 50, 53, 67]. These systems do not support richer
+Carlos Guestrin, and Matei Zaharia. Semantic Operators and Their                              LLM-based operations, such as ranking, grouping or joining records,
+Optimization: Enabling LLM-Based Data Processing with Accuracy                                which require more complex AI algorithms that compose multiple
+Guarantees in LOTUS. PVLDB, 18(11): 4171 - 4184, 2025.                                        model invocations to orchestrate the model over the data. Alter-
+doi:10.14778/3749646.3749685                                                                  natively, more recent LLM-based analytics systems, such as Do-
+                                                                                              cETL [61] and UQE [25], study more complex AI operations, but
+This work is licensed under the Creative Commons BY-NC-ND 4.0 International                   empirically optimize these operations with no accuracy guarantees.
+License. Visit https://creativecommons.org/licenses/by-nc-nd/4.0/ to view a copy of
+this license. For any use beyond those covered by this license, obtain permission by
+                                                                                              These systems lack a formalism to dene correct behavior, which
+emailing info@vldb.org. Copyright is held by the owner/author(s). Publication rights          hinders their robustness and usability, as we show in Section 5.
+licensed to the VLDB Endowment.                                                               These obstacles highlight a core challenge of integrating semantic-
+Proceedings of the VLDB Endowment, Vol. 18, No. 11 ISSN 2150-8097.
+doi:10.14778/3749646.3749685                                                                  based processing within reliable query systems due to the inherent
+                                                                                              ambiguity of natural language instructions and LLM outputs.
+
+
+
+
+                                                                                       4171
+   We propose semantic operators, which extend the relational               1 def paper_digest ( research_interest : str , baseline : str ):
+model with AI-based operations. Semantic operators provide the              2   return papers_df \
+                                                                            3     . sem_search (  abstracts  , research_interest , K =100) \
+rst formalism with statistical accuracy guarantees for general-            4     . sem_filter ( f the paper {{ abstracts }} claim to
+purpose AI-based operations with natural language parameters,                           outperform { baseline } ) \
+including semantic lters, joins, top-k rankings, aggregations, and         5          . sem_agg ( f  Write a digest summarizing {{ abstracts }}
+                                                                                        and their relevance to { research_interest }  )
+projections. Each operator takes a concise natural language signa-
+ture, given by the programmer, and its behavior is fully specied               Figure 1: Example LOTUS program using semantic operators to return a
+by a tractable, high-quality reference algorithm. Our optimization              summary of relevant papers from the dataset papers_df. The user function,
+approach then exploits the rich design space of semantic operator               takes two strings, describing a research interest and a research baseline. The
+                                                                                program searches over papers in the dataset, then lters based on whether each
+execution plans to reduce cost, while providing statistical accuracy            paper claims to outperform the baseline, and nally constructs a summary.
+guarantees for individual operators with respect to the reference al-
+gorithm (i.e., ensuring that the output of the optimized operator will                • We dene optimizations with statistical accuracy guaran-
+be similar to that of the reference algorithm). We propose several                      tees for several useful operators, including semantic lters,
+novel optimizations for the semantic lter, join, top-k and group-by                    joins, top-k and group-by, yielding up to 1, 000⇥ speedups.
+operators. Our methods include approximation algorithms, building                     • Across diverse real-world ML tasks, we evaluate the ex-
+on statistical techniques used in prior works [37, 39] with novel and                   pressiveness of semantic operators and the benet of our
+ecient proxy scores using small LLMs or semantic embeddings.                           optimizations, including comparisons to prior work.
+We implement semantic operators in LOTUS (LLMs Over Tables
+of Unstructured and Structured data), an open source system that
+                                                                                2     THE SEMANTIC OPERATOR MODEL
+exposes these operators in a simple DataFrame-based API.
+   We systematically evaluate LOTUS on four real bulk-semantic                  Semantic operators provide a declarative interface for semantic-
+processing applications: fact-checking, biomedical multi-label clas-            based manipulation and access to data. These new AI-based opera-
+sication, search, and topic analysis. These applications include               tors extend the data independence model of relational systems [24]
+ones expressible and studied by recent LLM-based analytics sys-                 and introduce model-data independence: the separation of applica-
+tems (e.g., DocETL [61] and UQE [25]), where we compare against                 tion logic from the underlying AI-based algorithm that species
+those systems, as well as others, where we compare against hand-                how data records are processed via individual model invocations.
+designed pipelines from the AI literature. We demonstrate that the              Unlike relational operators, semantic operators are parametrized
+semantic operator model is eective, capturing state-of-the-art AI              by natural language expressions and rely on AI-based computation,
+pipelines in a few operator calls that reliably match or exceed the             making their behavior inherently ambiguous and imprecise. We
+quality of recent LLM-based analytics systems by up to 100%, while              address this key challenge by presenting a formalism for dening
+oering accuracy guarantees and running up to 3.6⇥ faster than                  semantic operators, their behavior, and correct optimizations, in
+the best quality baselines. Furthermore, our reference algorithms               this section. In Section 3, we build on this formalism to provide
+provide high-quality results, and our optimizations speed up query              optimized execution plans with accuracy guarantees, similar to
+execution by up to 1, 000⇥ with respect to them.                                relational query optimizers.
+   Specically, our LOTUS program re-implements FacTool’s re-
+cent state-of-the-art fact-checking pipeline [23], and achieves 12.5%           2.1     Example Semantic Operator Program
+higher accuracy with 28⇥ lower execution time on the FEVER                      To begin to understand the capabilities of semantic operators, we
+dataset [64], outperforming alternative LLM-powered analytics sys-              examine a simple program written with the LOTUS API, shown in
+tems. In the extreme multi-label classication task on the BioDEX               Figure 1. The function paper_digest takes two string parameters, a
+dataset [29], LOTUS reproduces state-of-the-art result quality [28]             user’s research interest and a research baseline, and returns a digest
+and the LLM-powered analytics baselines, while providing accu-                  of relevant research papers that claim to outperform the baseline.
+racy guarantees and 1, 000⇥ speedups compared to our reference                  To do this, the function uses 3 semantic operators to process the
+algorithm. In the search application, LOTUS allows a simple com-                dataset of research papers, papers_df, which contains an abstract
+position of operators to achieve 1.03  2⇥ higher nDCG@10 than                  attribute. The program rst performs top-k semantic search over the
+the next best performing baselines, while also providing query                  abstract attribute to nd relevant papers, then semantically lters
+eciency, with 1.67  10⇥ lower execution time than alternative                 to nd papers with abstracts claiming to outperform the baseline,
+high-quality algorithms. In the topic analysis task, LOTUS e-                  and lastly creates a summary with a semantic aggregation.
+ciently processes hundreds of ArXiv papers to discover a taxonomy                  Semantic operators perform familiar transformations, such as
+of key topics in dozens of seconds, while once again providing                  lters and aggregations, reminiscent of relational operators. The
+congurable speedups with statistical accuracy guarantees.                      crucial dierence lies in the ability of semantic operators to per-
+   Overall, our main contributions are:                                         form transformations with reasoning-based, natural-language speci-
+      • We propose semantic operators, the rst formalism with sta-             cations. For instance, the sem_filter operator takes the natural
+         tistical accuracy guarantees for general-purpose AI-based              language parameter "the paper {abstracts} claim to outperform the
+         operations with natural language parameters. Specically,              baseline". The expected output of this operator is all records from
+         our optimization framework species each operator’s ex-                the dataset with abstracts that pass this natural language predicate.
+         pected behavior and provides accuracy guarantees with                     The reasoning capabilities of semantic operators signicantly
+         respect to a high-quality reference algorithms.                        distend traditional relational operators and indices. Still, traditional
+
+
+
+
+                                                                         4172
+Table 1: Summary of Key Semantic Operators. ) denotes a relation, - and . denote arbitrary tuple types. ; denotes a parameterized natural
+language expression (“langex“ for short). Each operator may permit additional optional parameters, including accuracy targets.
+
+ Operator                                      Description                                          Denition                                       Reference Algorithm
+
+ sem_lter (; : - ! Bool)                      Returns the tuples that pass the langex predicate.   {C8 |C8 2 ) ^ ;" (C8 ) = 1}                     Compute " (C8 , ; ), C8 2 )
+ sem_join(C : ) , ; : (- , . ) ! Bool)         Joins a table against a second table C by keeping    { (C8 , C 9 ) |;" (C8 , C 9 ) = 1, C8 2         Compute " ( {C8 , C 9 }, ; ), C8 2 )1 , C 9 2 )2
+                                               all tuple pairs that pass the langex predicate.      )1 , C 9 2 )2 }
+ sem_agg (; : ) [- ] ! X )                     Aggregates input tuples according to the langex      ;" (C 1 , ..., C= ) 8C 1 , .., C= 2 )           Perform a hierarchical reduce, recursively
+                                               reducer function.                                                                                    computing 0228,A
+                                                                                                                                                    " ( {022=8 ,A 1 , ..., 022=8 +=,A 1 }, ; )
+ sem_topk (; : ) [- ] ! (4@ [- ] , : : 8=C )   Returns an ordered list of the : best tuples         hC 1 , ..., C: i st 8 (C8 , C 9 ), 8 < 9 =)        Perform quick-select top-k using pairwise
+                                               according to the langex ranking criteria.            ;" (C8 , C 9 ) = hC8 , C 9 i                       comparisons, " ( {C8 , C 9 }, ; )
+                                                                                                                            Õ
+ sem_group_by (; : - ! . , ⇠ : 8=C )           Groups the tuples into ⇠ categories based on the           arg max                   max ;" (C8 , ` 9 ) Obtain centers ` 1 , ...`⇠ with a clustering
+                                               langex grouping criteria.                            {`1 ,...`⇠ },`8 2+ N C8 2)
+                                                                                                                                   9 21...⇠
+                                                                                                                                                       algorithm, and perform pointwise
+                                                                                                                                                       assignments " (C8 , (;, ` 1 , ..., `⇠ ) ),t8 2 ) ,
+ sem_map (; : - ! . )                          Performs the projection specied by the langex.      {;" (C8 ) |C8 2 ) }                             Compute " (C8 , ; ), C8 2 )
+
+
+non-AI primitives may be used to transparently optimize the exe-                                AI algorithm that produces results considered to be high quality.
+cution of semantic operators. For instance, a naive execution of the                            Each reference algorithm species a model access pattern over the
+semantic lter might process each record in a separate LLM invo-                                relation ) via an algorithm composed of model invocations " (G, ;),
+cation that prompts the model to evaluate the predicate. However,                               describing the subset of the data G ✓ ) , each model call is invoked
+an optimized execution might leverage a light-weight model or                                   over and the task-specic language expressions, given by ;.
+vector index to speed up some predicate evaluations while reserv-
+ing LLM-based predicate evaluations only when needed. Crucially,                                2.3      Dening Correct Optimizations for
+an ecient analytics system should provide such optimizations                                            Semantic Operators
+transparently and adaptively to reduce cost when possible, while
+                                                                                                Semantic operators create a rich design space of diverse execution
+also providing accuracy guarantees.
+                                                                                                plans. While reference algorithms provide high-quality implemen-
+                                                                                                tations, they are often expensive, with the complexity of LLM calls
+2.2     Dening Semantic Operators                                                              scaling linearly or quadratically in the dataset cardinality. As such,
+Denition. A semantic operator is a declarative transformation over                             we dene correct optimizations for individual semantic operators
+one or more datasets, parameterized by a natural language expression.                           below by considering alternate AI-based algorithms that can reduce
+Each semantic operator can be implemented by potentially many AI-                               cost while oering close results. In general, optimized semantic oper-
+based algorithms, and its correct behavior is dened with respect to a                          ator plans allow for both lossless optimizations and approximations
+given reference algorithm.                                                                      of a reference algorithm. This formulation builds on approximate
+   Table 1 lists a core set of semantic operators, which cover com-                             query processing and assumes some error is often tolerable, which
+mon semantic transformations in real-world applications and mir-                                we nd (Section 5) is reasonable for achieving high-quality results
+ror key transformations in relational operators. Specic systems                                for semantic processing, which is inherently non-exact.
+may, of course, provide additional semantic operators beyond the                                Denition. A correct optimization for a given semantic operator, and
+ones we discuss here. Each semantic operator takes a parameterized                              a reference algorithm for that operator, reduces cost while providing
+natural language expressions (langex for short), which are natural                              statistical accuracy guarantees with respect to the reference algorithm.
+language expressions that specify a function over one or more at-                               Specically, the optimization should ensure an accuracy target, W, is
+tributes. As Figure 1 demonstrates, the langex signature varies for                             met with probability 1  X.
+dierent semantic transformations. While the sem_filter langex
+signature provides a natural language predicate, the sem_agg langex                             2.4      Core Semantic Operators
+is a commutative, associative aggregator expression, which here
+                                                                                                We now overview several core semantic operators, providing the
+indicates a summarization task over abstracts.
+                                                                                                operator’s denition and a reference algorithm for each. We discuss
+   We provide a high-level denition of each semantic transfor-
+                                                                                                design decisions for our reference algorithms based on state-of-
+mation with respect to the user langex and a world model1 , ",
+                                                                                                the-art algorithms studied in the AI literature, well-known failure
+which captures a probability distribution over the vocabulary + .
+                                                                                                cases, such as long-context challenges [48], or our experimental
+For example, semantic lter returns {C8 |C8 2 ) ^ ;" (C8 ) = 1}, where
+                                                                                                observations. Our empirical evaluation (Section 5) conrms that
+) is the input relation and ;" (C8 ) represents a natural language
+                                                                                                the reference algorithms we present support state-of-the-art result
+predicate evaluated on tuple C8 with model M. Notably, the deni-
+                                                                                                quality in real ML applications; however, nding optimal reference
+tion of each semantic operator can be implemented by multiple
+                                                                                                algorithms for each operator remains an open research question.
+AI-based algorithms, and dierent decisions as to how to invoke
+                                                                                                Semantic Filter is a unary operator over the relation ) and returns
+the model over the relation have consequences on the algorithm’s
+                                                                                                the relation {C8 |C8 2 ) ^ ;" (C8 ) = 1}, where the langex provides a
+result quality. Thus, the correct behavior of each semantic operator
+                                                                                                natural language predicate over one or more attributes.
+is specied by a reference algorithm, a computable and tractable
+                                                                                                Reference Algorithm. Our reference algorithm runs batched LLM
+1 In practice, the world model, " may be the strongest LLM a practioner has available.          calls over all tuples in relation ) . Each model invocation, " (C8 , ;),
+
+
+
+
+                                                                                         4173
+1 join_res = papers_df . sem_join ( dataset_df ,  The paper {
+         abstract : left } uses the { dataset_name : right }.  )                             rank of the pivot. Because each round is fully parallelizable, we can
+2 topk_res = papers_df . sem_topk (  The paper has the                                       eciently batch these LLM-based comparisons before recursing.
+         funniest { title }  , K =5)                                                         Semantic Aggregation performs a many-to-one reduce over the in-
+3 grouped_res = papers_df . sem_group_by ( What is the main
+         research topic of the paper { abstract }  , C =10)                                  put relation, returning ;" (C 1, ..., C= ), 8C 1, .., C= 2 ) . Here, the langex
+                                                                                              signature is a commutative, associative aggregation function3 , which
+Figure 2: Example usage of sem_join, sem_topk, and sem_groupby. pa-                           can be applied over any subset of rows to produce an intermediate
+pers_df contains elds for the "title" "abstract", and dataset_df, contains a eld
+called "dataset_name".                                                                        results. We note that the langex iteself is model-agnostic, assuming
+                                                                                              innite context. Managing nite context limits of the underlying
+prompts the LLM with a single tuple C8 2 ) , the langex predicate,                            model " is an implementation detail of the system.
+and an operator-specic instruction to generate a boolean value.                              Reference Algorithm. Our reference algorithm uses a hierarchical
+This simple choice avoids well-studied long-context issues [48] by                            reduce pattern. Our choice builds on the LLM-based summarization
+processing rows independently rather than in a single invocation.                             pattern studied by prior research works [16, 21, 68] and deployed
+Semantic Join provides a binary operator over relations )1 and                                systems [7, 13], which we briey overview. Prior works primarily
+)2 to return the relation {(C8 , C 9 )|;" (C8 , C 9 ) = 1, C8 2 )1, C 9 2 )2 }.               study two aggregation patterns. First, a fold pattern performs a lin-
+Here the langex is parameterized by the left and right join keys and                          ear pass over the data, iteratively updating the accumulated partial
+describes a natural language predicate over both.                                             answer with the next tuple C8 , given by 0228            " ({0228 1, C8 }, ;). Al-
+Reference Algorithm. The reference algorithm implements a nested-                             ternatively, the hierarchical reduce pattern recursively aggregates =
+loop join pattern, performing a single predicate evaluation for each                          inputs in each round A and produce multiple partial answers, given
+pair of tuples, with model invocations " ({C8 , C 9 }, ;), C8 2 )1, C 9 2 )2 .                by 0228,A     " ({022=8 ,A 1, ..., 022=8 +=,A 1 }, ;) until a single answer
+This yields an $ (|)1 | · |)2 |) LLM call complexity.                                         remains. Both represent candidate reference algorithms, however,
+Semanic Top-k imposes a ranking2 over the relation ) and returns                              the hierarchical pattern has been shown to produce higher quality
+the ordered sequence, hC 1, ..., C: i st 8(C8 , C 9 ), 8 < 9 =) ;" (C8 , C 9 ) =              results for commutative, associative aggregation tasks, like sum-
+hC8 , C 9 i. Here, the langex signature is a general ranking criteria.                        marization, in prior work [21] and allows for greater parallelism
+Reference Algorithm. Two important algorithmic design decisions                               during query processing, making it our default choice.
+for the semantic top-k include how to implement LLM-based com-                                Semantic Group-by takes a langex that species a projection
+parison and how to aggregate ranking information from these com-                              from a tuple to an unknown group label, as well as a target number
+parisons. Our reference algorithm uses pairwise LLM comparisons                               of groups, which species the desired granularity of group labels.
+for the former, and a quick-select top-k algorithm [33] for the latter.                       As a example, a user might group-by the topics presented in a
+We briey describe the reason for these choices and alternatives                              set of ArXiv papers, wishing to nd 10 key groups. The group-by
+considered. Our decisions build on prior works, which have studied                            operator must discover representative group labels and assign a label
+LLM-based passage re-ranking [27, 31, 45, 52, 56–59, 62] and rank-                            to each each tuple. In general, performing the unsupervised group
+ing with noisy comparisons [20, 60] with the goal of achieving high                           discovery is a clustering task, which is NP-hard [26]. Clustering
+quality results in a modest complexity of LLM calls or comparisons.                           algorithms over points in a metric space typically optimize the
+    First, pairwise-prompting methods oer a simple and high-quality                          potential function tractably using coordinate descent algorithms,
+approach that feeds a single pair of tuples to each LLM invocation,                           such as k-means. For the semantic group-by, the clustering task is
+" ({C8 , C 9 }, ;), prompting the model to compare the two inputs and                         over unstructured elds with a natural language similarity function
+output a binary label. The two main classes of alternatives are                               specied by ;" (C8 , ` 9 ), which imposes a real-valued score between
+point-wise ranking methods [27, 31, 45, 59, 69], and list-wise rank-                          a tuple C8 and a candidate label ` 9 . This operator poses the following
+ing methods [52, 56, 57, 62], both of which have been shown to face                           optimization problem:
+quality issues [27, 58, 62]. We verify these limitations in Section 5.                                                              ’
+                                                                                                                   arg max                max ;" (C8 , ` 9 )
+In contrast, pairwise comparisons have been shown to be eective
+                                                                                                                 {` 1 ,...`⇠ }, `8 2+ N C8 2) 9 21...⇠
+and relatively robust to input ordering [58].
+    In addition, we consider several possible rank-aggregation algo-                          where `8 is a group labels, consisting of tokens in vocabulary, + .
+rithms, including quadratic sorting algorithms, a heap-based top-k                            Reference Algorithm. Since this operator, by denition, entails the
+algorithm and a quick-select-based top-k ranking algorithm. Our                               NP-hard clustering problem [26], our reference algorithm uses a
+evaluation in Section 5 demonstrates that each of these sorting                               tractable clustering heuristic to discover group labels, then per-
+algorithms yield high-quality results, comparable to one another.                             forms point-wise classication to assign each record to a discov-
+However, the quick-select-based algorithm oers an ecient imple-                             ered group label. Specically, our LLM-based clustering algorithm
+mentation with at least an order of magnitude fewer LLM calls than                            discovers centers ` 1, ..., `⇠ by rst performing a semantic projec-
+the quadratic sorting algorithm and more opportunities for e-                                tion, with model invocations " (C8 , ;), C8 2 ) , prompting the LLM
+cient batched inference, leading to lower execution time, compared                            to predict a candidate label for each input tuple. Then, we embed
+to a heap-based implementation. The quick-select top-k algorithm                              these candidate labels and perform an ecient vector clustering
+proceeds in successive rounds, each time choosing a pivot, and com-                           using k-means to construct ⇠ groups. For each group, we top-k
+paring all other remaining tuples to the pivot tuple to determine the
+2 This denition implies that ;                                                               3We note that the ordering of inputs within an LLM prompt invocation can in fact aect
+                            " imposes a total and consistent ordering. However, this
+denition can also be softened to assume partial orderings and noisy comparisons              results quality for some tasks. To allow programmers to override the commutativity
+with respect to model " .                                                                     and associativity, LOTUS exposes a partioner function.
+
+
+
+
+                                                                                       4174
+ Algorithm 1: SEM-FILTER() , ;, " (G), (G), W' , W% , X)                                       algorithm with probability 1X. We leverage the cheaper, but less ac-
+    Input: Relation ) , langex predicate ; , oracle model " (G ) , proxy model (G ) ,          curate proxy model (C, ;), which is congured by the user and can
+            recall target W' , precision target W% , error probability X                        output a score indicating whether the tuple C passes the predicate.
+    Output: Filtered relation ) 0
+    B    sample_size
+                                                                                                This idea is inspired by prior works [22, 36, 38, 65, 72, 72], which
+    (     ImportanceSample () , (G ), B )                                                      leverage model cascades for dierent problem settings. Specically,
+    "(      {" (C ) : C 2 ( }                                                                   several works study cascades in the video analytics setting with
+    ⇡      {(C ) : C 2 ⇡ }
+    (      {(C ) : C 2 ( }                                                                    vision models, which have signicantly dierent properties than
+    g+     PT_threshold_estimation ((, ;, "( , ( , W% , X/2)                                   LLMs, requiring dierent proxy scoring mechanisms. Other works
+    g     RT_threshold_estimation ((, ;, "( , ( , W' , X/2)                                   study cascades for LLMs, but use heavy-weight scoring mecha-
+    g+     max(g+ , g  )
+    ) 0    ;                                                                                    nisms to decide whether to use the proxy model and do not provide
+    // Evaluate predicate for each tuple                                                        accuracy guarantees. In contrast, we focus on providing accuracy
+    for C 2 ) do                                                                                guarantees for the constrained problem of applying cascades for
+         if (C )  g+ then
+              )0      ) 0 [ {C }                                                                lters, which allows us to use lighter-weight scoring functions than
+         else if (C )  g  then                                                               the more general case studied in prior works.
+              if " (C ) then
+                    )0     ) 0 [ {C }                                                              In general, we cannot assume the proxy model is accurate. In
+    end                                                                                         fact, the proxy model may perform very poorly for some tasks and
+    return ) 0                                                                                  records. The goal of our algorithm is to automatically discover the
+                                                                                                quality of the proxy at query time by sampling and comparing to
+                                                                                                the reference algorithm with the oracle model. Our algorithm will
+sample by centroid-similarity scores, and perform a semantic ag-                                exploit the proxy when it is likely to provide high-quality outputs,
+gregation to synthesize an appropriate label over each group. This                              and otherwise defer the oracle model. To do this we must learn
+provides a reasonable clustering heuristic similar to prior work [25],                          a decision rule, with learned thresholds on the proxy scores us-
+although alternative heuristics are possible. In the second stage,                              ing sampling. As prior work [37] discusses, such sampling-based
+our reference algorithm uses the ⇠ generated labels, `1, ...`⇠ , and                            algorithms introduce multiple-hypothesis testing problems, requir-
+performs point-wise assignments " (C8 , (;, ` 1, ..., `⇠ )), C8 2 ) . We                        ing statistical corrections using condence intervals, which we
+choose point-wise classication to avoid the long-context scaling                               carefully apply in our algorithm.
+challenges studied in prior works [25, 48]. This algorithm yields                                  We consider a small LLM as the proxy model and generate scores
+$ (|) |) LLM call complexity.                                                                   (C) using log-probabilities4 corresponding to the True or False
+                                                                                                output tokens of the proxy model’s predicate evaluations, re-scaling
+3     OPTIMIZED EXECUTION PLANS FOR                                                             by the quantiles over all generated log-probabilities over the re-
+      SEMANTIC OPERATORS                                                                        lation. Specically, we construct @ evenly-spaced quantiles in the
+                                                                                                range 0 to 100, and bin each computed proxy condence score into
+In this section, we present novel optimizations for several costly                              one of these quantiles, reassigning the condence score of each
+operators, including semantic lter, join, top-k and group-by. Each                             sample to its quantile number. In our experiments, we nd that
+optimization provides statistical accuracy guarantees with respect                              using @ = 50 quantiles provides sucient granularity while also
+to the reference algorithm, building from Section 2. While this                                 maintaining eciency. Algorithm 1 shows the full procedure for
+paper focuses on novel optimizations for several expensive seman-                               performing the approximate semantic lter. We begin by collecting
+tic operators, we envision a rich space of future work exploring                                a sample of tuples (, and labeling each sample with the oracle and
+new optimizations and applications of traditional optimizations                                 proxy models. The sampling procedure uses importance sampling
+for semantic operator programs. For example, several prior works                                and defensively mixes a uniform sample following prior work [38].
+demonstrate performance gains in both logical query plan optimiza-                              Importance sampling chooses records C with replacement from the
+tions (e.g. operator re-ordering [46, 47, 50, 51]) and other general                            dataset ⇡ with weighted probabilities F (C) then uses a reweighting
+LLM-approximation techniques (e.g. code synthesis [18, 47] and                                  identity to compute the expected value of a quantity 5 (C), instead of
+prompt adaptation [22]). We also note two core semantic operators,                              uniformly sampling each record
+whose optimizations we do not study in this section: semantic maps                                                          p with probability 1/|⇡ |. Our weight
+                                                                                                function for sampling uses ((C)), following Kang et al. [38], and
+and aggregations. Semantic maps reect the general problem of
+                                                                                                we refer the reader to Algorithm 4 of their paper for a detailed
+batched LLM inference, which has been well studied by prior works.
+                                                                                                sketch. Additionally, the sample size is a hyperparameter, which
+We instead focus the scope of this study on novel optimizations
+                                                                                                can aect the convergence rate of probabilistic guarantees and has
+unique to semantic operators. Although semantic aggregations oer
+                                                                                                been studied by prior work on cascade-based optimizations. We set
+interesting optimization opportunities, we exclude an exploration
+                                                                                                a default value by taking the maximum 1% of the dataset size and
+here due to space limitations. We point the interested reader to the
+                                                                                                100 samples, following prior work [38].
+discussion in an extended version of this manuscript [54] and we
+                                                                                                   Using the central limit theorem and the normal approximation
+leave a detailed quantitative analysis to future work.
+                                                                                                on the distribution of sample statistics, we then learn a decision
+                                                                                                rule by nding thresholds g+ and g  , which will respectively ensure
+3.1      Optimizing Semantic Filter
+                                                                                                4 Log-probabilities are available in common model providers, e.g., OpenAI, and serving
+We provide an approximation for semantic lters that obtains re-                                systems, e.g., vLLM. In the absence of available log-probabilities, alternative uncertainty
+call and precision targets W' and W% with respect to the reference                              quantication methods, such as prompt-based methods, may be more suitable.
+
+
+
+
+                                                                                         4175
+the precision target and recall target are met, each with an error                approximations. We begin by importance sampling to collect the
+probability of X/2. The statistical sub-procedures to choose each                 sample ( and construct the set of oracle labels, $ ( , over the sample.
+threshold follows prior work [38], but applies them to this new                   We then obtain embedding thresholds g+ and g  independently for
+setting where we must ensure both targets are met, requiring a                    each approximation algorithm using their respective proxy scores,
+correction for hypothesis testing and multiple failure modes. Finally,            1 and 2 . We use the learned thresholds for each candidate plan
+using the learned decision rule, our algorithm proceeds to process                to then determine the exact oracle cost needed to execute either al-
+each tuple in the relation. If the tuple’s proxy score is at least g+ ,           gorithm, and we take the least cost plan with its associated learned
+we mark it as passing the predicate. If the tuple’s proxy score is                thresholds to proceed to evaluate the predicate for each tuple pair.
+less than or equal to g  , we mark it as failing the predicate, and for
+tuples with proxy scores between g+ and g  , we resort to the oracle             3.3    Optimizing Semantic Group-by
+model to provide a label.                                                         We provide an ecient approximation that guarantees a classica-
+                                                                                  tion accuracy target, W, is met with probability 1  X. We follow the
+                                                                                  clustering algorithm in the rst stage of the reference algorithm to
+3.2    Optimizing Semantic Join
+                                                                                  discover centers ` 1, ...`⇠ . We then use a proxy-based approximation
+Similar to semantic lters, we provide an approximation for seman-                for point-wise assignments in the second stage of the algorithm.
+tic joins that obtains recall and precision targets W' and W% with                Similarly to semantic joins, we leverage semantic similarity scores
+respect to the reference algorithm with probability 1  X. Due to                 as a cheap proxy, although other proxy models are also feasible.
+the expensive quadratic scaling of the nested-loop join, rather than              Specically, we leverage the embeddings constructed during the
+using a small LLM as the proxy model, we consider an even cheaper                 clustering stage and compute similarity scores between the candi-
+proxy based on semantic similarity scores using embeddings to                     date label of each tuple and the discovered centers ` 1, ...`⇠ . The
+reduce the LLM-call complexity. We leverage two possible proxy                    proxy score of the tuple C8 with a candidate label, C80 , for a discov-
+algorithms and dynamically choose the lowest-cost one.                            ered center ` 9 is given by (C8 , ` 9 ) = B8<(C80, ` 9 ). Our goal is then
+   The rst approximation, sim-lter produces a proxy score 1 (C8 , C 9 ),       to learn a threshold g, such that if the proxy score between a tu-
+C8 2 )1, C 9 2 )2 based on embedding similarity. We perform batched               ple and the center is greater than g, we return the center as the
+similarity search between the right and left join keys and re-calibrate           label for the tuple, and otherwise we resort to the more expen-
+similarity scores according to their quantiles to obtain proxy scores.            sive LLM-based classication procedure. We accomplish this by
+We then use the proxy scores and a learned threshold to determine                 uniform sampling and running the sub-procedure equivalent to
+when to resort to the LLM for the join predicate evaluation between               the PT_threshold_estimation used in Algorithm 1 for seman-
+tuple pairs, and when to rely on the embedding-based proxy score.                 tic lters, where the metric we evaluate is classication accuracy
+This approximation is likely to perform eciently when tuple pairs                over the ⇠ groups. Here we use uniform rather than importance
+with high semantic similarity scores between the right and left                   sampling since the sample should consist of representative classes
+join key are more likely to pass the join predicate. This correlation             of the whole dataset, rather than a single, possibly rare, class of
+phenomenon between predicate matches and embedding similarity                     interest, as is the case for semantic ltering and joins.
+has been studied by prior works [55] and is not always present.
+Thus, we introduce an alternative approximation, often suitable
+                                                                                  3.4    Optimizing Semantic Top-k
+when correlation is not present.
+   The second approximation, project-sim-lter rst performs                      We leverage the embedding similarity scores to optimize pivot se-
+a projection over the left join key and then uses the projected                   lection for some queries, while incurring no accuracy loss. This
+column to compute proxy scores 2 (C80, C 9 ) based on embedding                  optimization is useful when correlation exists between the ranking
+similarities between the projected value C80 and C 9 . As before, we              imposed by the user’s arbitrary sorting criteria and the ranking
+also re-calibrate the proxy scores taking their quantiles. Intuitively,           imposed by semantic similarity scores. In this case, we can sort
+performing the projection is useful when tuple pairs that pass the                tuples based on embedding distances to the user’s query, and select
+user’s natural language predicate exhibit low semantic similarity.                the (: + n)-th item, rather than a random item, as the rst pivot.
+The projection step invokes the LLM over each tuple in left join                  This can reduce the number of LLM comparisons required by sub-
+table, prompting it to predict attributes values for the right join key,          sequent rounds in the quick-select algorithm, leading to higher
+without specifying the domain of the right join key. Notably, this                query eciency at no accuracy loss. In the case of no correlation
+LLM projection is ungrounded, i.e., it is done without knowledge                  between the langex-based ranking and similarity-based ranking,
+of the right join key’s attribute domain and can thus be performed                this method amounts to random pivot selection, and in the worst
+in a fully parallelized semantic map operation. Figure 2 provides an              case of an adversarial pivot, the algorithm will incur one extra pivot
+example of a semantic join between a table of papers and datasets,                round, which can impact execution time, but not degrade quality.
+where the predicate evaluates whether a given paper abstract uses
+a specic dataset. Here, the map step would invoke the LLM over                   4     THE LOTUS SYSTEM
+each abstract, instructing the model to output the dataset used,                  In this section we describe the LOTUS system, which implements
+conditioned only on the abstract.                                                 the semantic operator model as an extension of Pandas [11]. We
+   To dynamically choose between these two approximations, we                     chose a Pandas-like API in our initial system implementation to
+follow a procedure similar to Algorithm 1 to determine the em-                    make it easy for users to integrate LOTUS with popular AI libraries
+bedding thresholds for both the sim-lter and project-sim-lter                   in Python. However, semantic operators could also be added to a
+
+
+
+
+                                                                           4176
+1 papers_df . sem_sim_join ( papers_df , left_on =  abstract  ,
+        right_on = abstract  ,   K =10)                                        Sem_group_by. This operator creates groups over the input dataframe
+2 papers_df . sem_search ( col =  abstract  , query =  vector                 according to the langex projection and target number of groups. By
+        databases  , K =10)                                                     default, the operator discovers suitable group labels, but the user
+        Figure 3: Example usage of sem_sim_join and sem_search.                  can also optionally specify target labels. This operator is useful
+                                                                                 both for semantic clustering and classication tasks.
+variety of other data processing APIs and query languages, such                  Sem_map & Sem_extract. Both these operators perform a natu-
+as SQL. LOTUS leverages vLLM [43] to perform ecient batched                     ral language projection over an existing column. While sem_map
+inference, and uses FAISS [30, 34], by default, to support ecient               projects to an arbitrary text attribute, sem_extract projects each
+vector search with indices stored and maintained locally on disk.                tuple to a list of sub-strings from the source text. This is useful for
+                                                                                 applications, such as entity extraction, where nding snippets or
+4.1     Datatypes                                                                veried quotes may be preferable to synthesized answers.
+LOTUS’ data model consists of tables with structured and unstruc-
+tured elds (e.g., text or images), both of which can be passed                  5   EVALUATION
+as langex parameters. LOTUS also supports semantic indices over                  We systematically evaluate LOTUS on four bulk-semantic process-
+unstructured elds for optimized query processing. These indices                 ing applications from the AI and data literature: fact-checking,
+leverage semantic embeddings over each entity in a column and cap-               biomedical multi-label classication, search, and topic analysis.
+ture semantic similarity using embedding distance metrics. Seman-                Some of these applications can be expressed by recent LLM-based
+tic indices can be created o-line with sem_index and a specied                 analytics systems, like AI UDFs, UQE and DocETL, allowing us to
+retriever model, and then loaded from disk using load_sem_index.                 compare against them; while other applications are not supported
+                                                                                 by the baseline systems, but LOTUS supports them. For each ap-
+4.2     Semantic Operators in LOTUS                                              plication, we additionally compare against strong hand-designed
+We now overview the semantic operators supported in the LOTUS                    pipelines from the literature. We evaluate the LOTUS optimizer,
+API, which includes the core set of operators described in Section 2,            comparing the performance of optimizations for semantic lters,
+as well as several additional variants provided for convenience. Each            joins, top-k and group-by with our reference algorithms. Lastly,
+operator takes optional parameters to specify a target accuracy and              we analyze the statistical accuracy guarantees provided by LOTUS’
+error probability, which the optimizer will use to transparently per-            optimizations. Overall, we nd the following:
+form optimizations. In general, the tradeo curve between accuracy,                    • Compared to AI-based analytics systems, like AI UDFs,
+latency and cost curve depends on the specic user task, dataset,                         UQE, and DocETL, LOTUS attains similar or up to 170%
+and congured models. In practice, one can empirically analyze                            higher accuracy, while running up to 3.6⇥ faster and oer-
+this tradeo by benchmarking varied accuracy targets and choose                           ing statistical accuracy guarantees that the other systems
+the operating point most suitable for the given application.                              do not provide.
+Sem_lter, Sem_join, & Sem_sim_join. The LOTUS API supports                            • Compared to hand-written pipelines from the AI literature
+sem_filter and sem_join, both of which take a langex predicate,                           for fact-checking, biomedical classication, and search, LO-
+as described in Section 2. In addition, LOTUS provides a join variant,                    TUS matches state-of-the-art quality, or exceeds it by up to
+sem_sim_join, where tuples are matched according to their seman-                          100%, in programs involving a few semantic operators.
+tic similarity, rather than an arbitrary natural-language predicate.                   • The LOTUS optimizer can substantially reduce cost of se-
+Akin to an equi-join in standard relational algebra, the semantic sim-                    mantic operator programs, by up to 1, 000⇥ compared to
+ilarity join is a specialized semantic join, which indicates additional                   high-quality reference algorithms, and provides accuracy
+optimization opportunities to the query engine by leveraging vector                       guarantees, which hold across repeated trials.
+similarity search. Figure 3 provides an example of the sem_join
+                                                                                    To report controlled latency numbers, we run each baseline
+compared to the sem_sim_join, where the user species the left
+                                                                                 and experiment locally on 4 80GB A100 GPUs using Llama-3-
+and right table join keys, and a parameter . The operator performs
+                                                                                 70B [6] and E5 embeddings [66], with a batch size of 64 running
+a left join such that for each row in the left table, the output table
+                                                                                 on vLLM [43], unless otherwise stated. To run DocETL baselines
+will contain most similar rows from the right table.
+                                                                                 and reproduce some of their benchmarks [61], we additionally use
+Sem_topk & Sem_search. LOTUS supports a semantic top-k,
+                                                                                 OpenAI [10] models, including GPT-4o-mini-2024-07-18, GPT-4o-
+which takes the langex ranking criteria, as described in Section 2.
+                                                                                 2024-08-06 model, and text-embedding-3-small, where noted. For
+Programmers can optionally specify a group-by parameter. The
+                                                                                 our experiments that use OpenAI models, we control for cost by
+groupings are dened using standard equality matches over the
+                                                                                 limiting execution to 64-way thread parallelism. For reproducibility,
+group-by columns. Additionally, as Figure 3 shows, LOTUS also
+                                                                                 we set temperature to C = 0 for all methods, unless otherwise stated.
+provides a top-k variant, sem_search, which returns results ranked
+by similarity to the natural language query. LOTUS also exposes ad-              5.0.1 Benchmarked Methods. We briey overview the main meth-
+vanced relevance-based re-ranking functionality for search. Users                ods we benchmark and tested parameters.
+can specify the n_rerank parameter, which will re-rank the top-                  AI UDFs. Many database vendors [1, 8, 9, 14, 53, 67] now support
+documents and return the top n_rerank.                                           AI UDFs, which include map-like, row-wise LLM operations and
+Sem_agg. The LOTUS API supports semantic aggregations, fol-                      primitives for vector search. To control for serving infrastructure,
+lowing the description in Section 2. Similar to sem_topk, LOTUS                  we implement these programs using LOTUS running on vLLM, and
+also allows users to optionally specify a group-by parameter.                    restrict our API to sem_map, sem_search and sem_sim_join.
+
+
+
+
+                                                                          4177
+UQE. UQE [25] proposes an optimized LLM-powered lter method,                                        Table 2: Fact-checking Performance on the FEVER Dataset.
+which is relevant to this work. Since the code is not open-source, we                              Method                 Accuracy ET (s), batching   ET (s), no batching   LoC
+implement the UQE lter in 100 line of python code. The UQE lter                                  FacTool                80.9      N/A               5396.11               > 750
+takes an LLM call budget and provides a best-eort embedding-                                      AI UDF: map, search,   89.9      688.9             4,454.2               < 50
+based approximation. To provide a fair comparison between UQE                                      map
+                                                                                                   AI UDF map, search     66.0      184.4             738.3                 150
+and LOTUS, we normalize the latency budget when comparing                                          + UQE lter
+against LOTUS programs that use LLM-based proxies, and we nor-                                     LOTUS map, search,     91.2      329.1             989.0                 < 50
+malize the LLM call budget when comparing against LOTUS pro-                                       lter (unopt.)
+                                                                                                   LOTUS map, search,     91.0      190.0             776.37                < 50
+grams that use embedding-based proxies. We also hyperparameter                                     lter (opt.)
+tune UQE’s minibatch size, used for its active learning algorithm.
+DocETL. DocETL [61] uses an LLM agent as the query optimizer
+to perform rewrites to programs, allowing programs to specify sep-                                prompts found in FacTool [5], which include 3 demonstrations for
+arate LLMs for the optimizer and execution. Our experiments nd                                   generating search queries in the rst semantic mapping, and chain-
+that the optimizer often fails, and among runs where the optimizer                                of-thought prompting in the second semantic mapping. The UQE
+succeeds, performance varies. We obtain three successful runs and                                 baseline follows the rst two steps of the AI UDF baseline, but
+report the average performance of these three successes. We also                                  replaces the nal step with UQE’s embedding-based LLM-powered
+try using both Llama-70B as the DocETL optimizer, following our                                   lter. Our LOTUS program similarly follows a map-search-lter
+setup for each other baseline, and GPT-4o-mini as the DocETL                                      pipeline and uses a Llama-8B proxy model. To provide a fair com-
+optimizer, following the DocETL preprint [61]. However, we nd                                    parison, we tune the UQE LLM call budget to normalize execution
+both fail to produce a successful run in Section 5.2. We conrm a                                 time with the optimized LOTUS program. Since DocETL does not
+mistake in the pre-print with the authors and nd that GPT-4o is                                  provide search primitives, we cannot benchmark it in this task.
+required for the DocETL optimizer for the BioDEX experiments in                                   Results. We report each method’s accuracy, an estimate of lines of
+Section 5.2. Since the codebase is an evolving artifact, we report                                code (LoC), and average execution time (ET) over 10 runs in seconds,
+the commit number we used here5 .                                                                 both with and without batching to provide a fair comparison with
+LOTUS. We set the default accuracy target, W = 0.9 and failure                                    FacTool, which provides a sequential implementation only. Overall,
+probabilitiy, X = 0.2. We provide a detailed ablation, varying these                              Table 2 demonstrates that the optimized LOTUS program repro-
+parameters in Section 5.5. We also show several benchmarks using                                  duces state-of-the art accuracy, comparable to that of FacTool, with
+either the oracle model only (W = 1), or the proxy model only                                     7⇥ faster unbatched execution and 28⇥ faster batched execution,
+(W = 0). Additionally, our sample size, B, use 0.01% of the data and a                            and in less than 50 LoC, while also outperforming baseline.
+minimum of B = 100 for smaller datasets, following prior work [37].                                  We begin by noting that the unoptimized LOTUS program achieves
+                                                                                                  state-of-the-art accuracy; its improvement over the AI UDF and
+5.1      Fact-Checking                                                                            UQE baselines reect the eectiveness of our reference algorithm.
+Fact-checking systems determine whether a given claim is cor-                                     Comparing the un-optimized and optimized LOTUS program to
+rect, typically based on veriability with a knowledge corpus. Fac-                               the AI UDF baseline, we see that each achieves comparable accu-
+Tool [23] is a recent open-source research work that provides                                     racy in relatively few lines of code. Notably, the AI UDF baseline
+a multi-step fact-checking pipeline. We consider the task of re-                                  and LOTUS program dier solely in the last step of the pipeline,
+constructing the FacTool pipeline, which was originally written in                                where LOTUS uses a semantic lter instead of a map. The LOTUS
+over 750 lines of code. For our evaluation, we use the FEVER [64]                                 sem_filter can be more heavily optimized compared to the generic
+dataset, a claim verication dataset based on a corpus of 5.5 million                             AI UDF map operation. This allows the LOTUS program to attain
+Wikipedia articles. Each claim is labeled with one of three reference                             3.6⇥ faster execution, attributable to the lter’s short LLM genera-
+labels, "Supported", "Refuted", or "NotEnoughInfo". We merge the                                  tions in the un-optimized LOTUS baseline, and our cascade-based
+latter two labels into a single class, "Not Supported", following prior                           optimization for lters in the optimized LOTUS program.
+work [23]. To control for our API spending budget, we sample 1,000                                   We also observe that the LOTUS program outperforms the UQE
+claims from the development dataset.                                                              program by 38% accuracy at an equivalent latency budget. The UQE
+Baselines. For all baselines we use ColBERT [42] as the retreiver                                 baseline diers from LOTUS solely in the way it performs semantic
+model6 and Llama-70B served with vLLM. We run FactTool’s open                                     ltering. LOTUS provides a high quality un-optimized semantic
+source codebase [5] to measure its performance. The AI UDF base-                                  lter, then optimizes the operation with accuracy guarantees by
+line uses a simple semantic map-search-map dataow, following                                     adaptively learning when to apply the proxy. On the other hand,
+FacTool’s pipeline. First each claim is mapped to two search queries.                             UQE takes a best-eort approach with a xed embedding-based
+Then the generated queries are used for search over the Wikipedia                                 proxy that is applied to all samples once the user’s LLM budget is
+corpus. Lastly, each claim, appended with retrieved context, is                                   depleted. The UQE lter is unable to automatically learn that the
+mapped to a truth label and reasoning chain. We use the same                                      embedding-based proxy performs poorly on this task.
+                                                                                                     Semantic Filter Optimization. Finally, we compare the LOTUS
+5 https://github.com/ucbepic/docetl/commit/93050998077a9eb6fc1ee99dc96d1e0a222a987f               programs with and without the semantic lter optimization. Table 2
+6 FactTool’s pipeline, by default, performs retrieval with a Google Search API [3]. We
+                                                                                                  shows the optimized program achieves 99.8% accuracy relative
+evaluate the pipeline with both the default retrieval API, and with the open-source
+ColBERT [42] index. We nd that the results are similar, and we report the results using          to the un-optimized one, while reducing batched execution time
+ColBERT for retrieval to hold the retriever model constant with the other baselines.              by 1.7⇥. Figure 4 further highlights the diverse operating points
+
+
+
+
+                                                                                           4178
+                                                                                       Table 3: Biomedical Multi-label Classication Results on the
+                                                                                       BioDEX Dataset with Llama-70b
+                                                                                         Method                           RP@5     RP@10      ET (s)         # LM Calls
+                                                                                         Search                           0.106    0.120      2.91           0.00
+                                                                                         AI UDF *                         N/A      N/A        2,144,560      6,092,500
+                                                                                         UQE                              0.115    0.114      6,559          15,000
+                                                                                         DocETL Join (avg of 3 suc-       0.180    0.219      2050           13,185
+Figure 4: Accuracy vs. execution time (s) for the LOTUS fact-checking                    cesses)**
+program on the FEVER dataset. We compare the performance using the proxy                 DocETL Join + Rank (avg of 3     0.262    0.282      2,342          13,433
+only (red circle), oracle only (green circle) and both models with varied the            successes)**
+precision and recall targets, at X = 0.2 (stars) for the lter.                          LOTUS Join                       0.212    0.213      2,340          5,644
+                                                                                         LOTUS Join + Rank                0.265    0.280      2,503          5,869
+
+achieved by our sem_filter by varying the recall and precision
+target, from W = 0 (red circle), to W = 1 (green circle).                              Table 4: Additional Comparison Following DocETL’s Original
+                                                                                       Benchmarks on the BioDEX Dataset with GPT-4o-mini
+                                                                                         Method                           RP@5     RP@10      ET (s)         # LM Calls
+5.2    Biomedical Multi-label Classication
+                                                                                         DocETL Join + Rank (avg of 3     0.268    0.287      583            35,669
+Biomedical classication entails processing complex, lengthy pa-                         successes)**
+tient documents. We consider the extreme multi-label classication                       LOTUS Join + Rank                0.289    0.296      647            32,026
+task on the BioDEX Dataset [29], which consists of a corpus of                                         * AI UDF is infeasible to run and latency is estimated.
+65, 000 biomedical articles, and ground-truth expert-created drug                         ** The DocETL baselines requires using GPT-4o as its optimizer and still exhibit
+                                                                                            frequent failures, with, on average, 1 in 3 runs failing. We rerun the system
+safety reports constructed from each article. The task is to classify                          multiple times and report results averaged only over 3 successful runs.
+the patient’s drug reactions, given each medical article. Notably,
+there are 24, 000 possible drug-reaction labels. Due to the large                      as execution time in seconds and the number of LLM calls. The
+label set, leveraging an LLM to perform inference is dicult, and                      LOTUS join with ranking program achieves higher rank-precision
+this setting has been studied in prior works [28]. We show below                       than the standalone LOTUS join program, and we show both.
+that this task can be eciently modeled and optimized using the                            We begin by informally comparing these accuracy results to
+semantic join. Similar to prior work [29] we sample 250 patient                        that of D’Oosterlinck et al. [28], a state-of-the art AI pipeline
+articles for our evaluation to control for our API spending budget.                    that composed a multi-step DSPy [41] program compiled using
+Baselines. The search baseline performs embedding similarity                           a combination of Llama-2-7b-chat, GPT-3.5-turbo, and GPT-4-turbo.
+search over each patient article and the set of reaction labels. For                   D’Oosterlinck et al. report 24.73 RP@5 and 27.67 RP@10 for the
+the baseline LLM-based analytics systems, we implement a LLM-                          compiled program, which is comparable to result quality achieved
+powered join over the patient articles and set of candidate reaction                   by the simple LOTUS join with ranking program.
+labels, followed by a ranking step, if supported. The AI UDF pro-                          Turning to the baselines measured in Table 3, we see that, rst,
+gram entails a naive, nested-loop join pattern using row-wise LLM                      the search baseline oers low results quality, with the LOTUS
+operators; however we note this is prohibitively costly and we re-                     programs achieving over 2⇥ higher RP@5 and RP@10 due to the
+port estimated latency. While UQE does not explicitly study joins,                     stronger reasoning capability of LLM algorithms. Next, The AI UDF
+we implement a UQE join using its optimized lter. The DocETL                          baseline, using row-wise LLM calls, is prohibitively expensive, and
+program uses a join and reduce, which uses listwise ranking, follow-                   reects the cost of our reference algorithm for joins. Its quadratic
+ing the preprint [61]. We note that we are unable to successfully run                  scaling of LLM call complexity with respect to dataset size leads to
+DocETL using Llama-70B or GPT-4o-mini for its optimizer, so re-                        1, 000⇥ higher estimated cost relative to the optimized LOTUS join
+sults (Table 3, 4) are shown using GPT-4o for the DocETL optimizer.                    program. UQE, which uses an embedding-based optimization, ob-
+LOTUS supports both join and ranking. Although LOTUS provides                          tains similar accuracy to the search baseline, remaining well below
+a sem_topk operator, we limit our ranking step to list-wise ranking                    the RP@5 and RP@10 of the LOTUS programs despite a generous
+to maintain a fair comparison with DocETL, and revisit ranking in                      LLM call budget, indicating that the UQE method has lower sample
+Section 5.3. Our main results are shown in Table 3, using Llama-70B                    eciency on this task. Next, we turn to a detailed comparison of
+and E5 embeddings and sampling size of 0.01%. We also provide                          DocETL and LOTUS, shown in Table 3 and Table 4. LOTUS con-
+an additional set of benchmarks in Table 4 comparing LOTUS and                         sistently matches or exceeds the accuracy of DocETL’s successful
+DocETL following the models, prompts and parameters used in the                        runs. Notably, the DocETL agentic optimizer requires GPT-4o and
+original DocETL preprint. The DocETL setup uses GPT-4o for the                         frequently fails, requiring multiple reruns, while LOTUS’ optimizer
+optimizer, GPT-4o-mini, text-embedding-3-small embeddings and                          provides statistical accuracy guarantees, which we analyze further
+a sampling size of 500. DocETL’s join takes an LLM call budget,                        in Section 5.5. Table 4 also shows that LOTUS and DocETL have
+which we control to compare against the other baselines.                               similar numbers of LLM calls and execution time, however the
+Results. Table 3 demonstrates the LOTUS programs consistently                          token consumption per call of the DocETL programs are lower on
+match or exceed the accuracy of all baselines, while also providing                    average due to its optimized plan, which leads to modestly lower
+performance guarantees, unlike DocETL, which requires multiple                         execution time despite modestly higher LLM calls.
+reruns and manual selection of the optimizer LLM to produce high-                          Semantic Join Optimization. Lastly, we turn to Table 5 and study
+quality results. The table reports the rank-precision@5 (RP@5) and                     the candidate join plans produced by the LOTUS optimizer. Plan
+rank-precision@10 (RP@10), following prior work [28], as well                          1, the sim-lter, requires more LLM calls to meet the recall and
+
+
+
+
+                                                                                4179
+Table 5: Comparison of Candidate LOTUS Join Plans and Reference                                Table 6: Ranking Results on SciFact and Hellaswag-bench Datasets
+Algorithm on the BioDEX Dataset Using Llama-70b
+                                                                                                                                   SciFact                      HellaSwag-bench
+                                                                                                Method
+  Method                            RP@5     RP@10      ET (s)        # LM Calls                                         nDCG@10      ET (s)   # LM     nDCG@10        ET (s)     # LM
+  LOTUS Join Plan 1                 0.1541   0.170      12,563        27,687                                                                   Calls                              Calls
+  LOTUS Join Plan 2 (chosen)        0.212    0.213      2,116         5,290
+  Reference Algorithm               N/A      N/A        2,144,560     6,092,500                 Search                   0.712        0.009    0        0.119          0.008      0
+                                                                                                Reranker                 0.741        2.64     0        0.461          2.36       0
+                                                                                                AI UDF                   0.457        9.83     100      0.091          19.7       200
+precision targets, compared to Plan 2, the project-sim-lter plan.                              DocETL - Llama 70B       N/A          N/A      N/A      0.246          14.1       3
+                                                                                                optimizer (avg. of 3
+This reects that Plan 2’s proxy oers a stronger signal for predicate                          sucesses)*
+evaluations. We see that the LOTUS optimizer correctly selects Plan                             DocETL - GPT 4o op-      N/A          N/A      N/A      N/A            N/A        N/A
+2 to execute since it is lower cost. The selected pattern also results in                       timizer*
+                                                                                                LOTUS                    0.765        36.3     213.2    0.919          57.0       506.4
+signicantly better accuracy due to its higher-quality proxy signal
+for this task. Specically, the project-sim-lter pattern oers 37%                               * DocETL is unable to acheive any successful runs using GPT-4o for its optimizer on
+                                                                                                     SciFact and HellaSwag-bench, nor using Llama-70B for its optimizer on SciFact
+higher RP@5 and 25% higher RP@10 compared to the sim-lter,
+with 1, 000⇥ fewer LLM calls than the reference algorithm.                                     Table 7: Comparison of LOTUS’ Top-k to the Reference Algorithm
+                                                                                               and Other High-Quality Top-k Algorithms for Ranking
+5.3     Search & Ranking
+                                                                                                                                   SciFact                      HellaSwag-bench
+Relevance-based ranking has been widely studied in the context of                               Method
+                                                                                                                         nDCG@10      ET (s)   # LM     nDCG@10        ET (s)     # LM
+information retrieval. In addition, our conversations with LOTUS                                                                               Calls                              Calls
+users reveal a common need for ranking based on complex natural                                 Quadratic Topk           0.768        801.2    4950     0.886          2116.6     19,900
+language criteria (e.g., ranking customer reviews based on how                                  Heap Topk                0.765        60.0     192.6    0.896          59.4       241.5
+frustrated they sound). We assess LOTUS’ ranking capabilities on                                Quickselect Topk         0.771        40.5     237.0    0.893          49.4       448.1
+                                                                                                LOTUS                    0.765        36.3     213.2    0.919          57.0       506.4
+both types of tasks using two datasets: BEIR’s SciFact test set [63], a
+widely used benchmark for retrieval, and a new dataset, HellaSwag-
+bench, which we generated to assess more complex ranking tasks.                                HellaSwag-bench, reecting the eectiveness of our LLM-based
+For both, we report average nDCG@10, a standard ranking metric,                                ranking algorithm using pairwise comparisons. Specically, as ex-
+and execution time (ET). The SciFact dataset consists of scientic                             pected, the re-ranker oers competitive accuracy compared to the
+claims and the task is to rank articles from a corpus by relevance                             LOTUS program on Scifact, which focuses on relevance-based re-
+to each claim. We sample 300 claims for our evaluation. HellaSwag-                             trieval, which is the supervised task on which the re-ranker model
+bench consists of 200 synthetic paper abstracts7 , each reporting                              was trained. However, on HellaSwag-bench, a more complex rank-
+an accuracy on the HellaSwag dataset [74], and the task is to rank                             ing task, the LOTUS program signicantly outperforms the re-
+abstracts by their reported accuracy. This dataset provides an ob-                             ranker, reecting the generalized capabilities of strong LLM-based
+jective ground truth, while focusing on a reasoning-based ranking                              reference algorithms. We also observe that the point-wise AI UDF
+criteria, rather than a relevance-based one8 . We report results for                           method and the list-wise ranking, used by DocETL, oer substan-
+= = 20 trials at temperature C = 0.7, similar to prior works [41].                             tially lower accuracy, unable to outperform the re-ranking baseline.
+Baselines. In addition to the standard search baseline, we add a                               This reects the limitations of point-wise and list-wise ranking,
+re-ranker baseline using the MixedBread cross-encoder [15], a high                             both of which have been studied in prior work [58] and exhibit
+quality re-ranker common in relevance-based retrieval. The AI UDF                              common failure modes involving calibration and long context. No-
+baseline performs a point-wise ranking by prompting the LLM to                                 tably, the DocETL baseline altogether fails to produce any suc-
+assign a relevance score to each row, similar to prior work [76].                              cessful execution plans using the GPT-4o optimizer on Scifact and
+The DocETL baseline uses the system’s LLM reduce operation for                                 Hellaswag-bench and using the Llama-70B optimizer on Scifact.
+ranking, as described by the pre-print [61]. Our LOTUS program                                     Turning our attention to Table 7, we compare the quick-select
+uses the sem_topk operator with a semantic index on the document                               top-k reference algorithm to several alternative candidates. The
+corpus of both datasets. For the reranker, AI UDF, DocETL, and                                 quadratic top-k, heap top-k, and quick-select top-k oer comparable
+LOTUS programs on SciFact, we perform search to retrieve 100                                   accuracy on both datasets; however, the three candidate choices
+articles, before re-ranking them with each method.                                             provide signicant dierences in eciency. The quadratic algorithm
+Results. We evaluated the performance of the LOTUS program in                                  requires 20  82⇥ more LLM calls and over 10⇥ higher execution
+comparison to the baseline systems, our reference algorithm, and                               time than the heap top-k and quick-select top-k. The quick-select
+alternative high-quality ranking algorithms we considered for our                              top-: oers 16  32% lower execution time than the heap-based
+sem_topk reference algorithm.                                                                  sorting method, despite sometimes requiring more LLM calls. This
+   First Table 6 demonstrates that LOTUS achieves 1.03  2⇥ higher                             is because the quick-select top-: implementation allows for ecient
+accuracy than the next best-performing baselines on Scifact and                                batched processing in each round of the algorithm, whereas the
+7 Each abstract in HellaSwag-bench is generated by prompting Llama-70b to write a              heap-based top-: incurs sequential LLM calls during heap updates.
+research abstract that claims a accuracy value, randomly sampled from 0  100%.                    Semantic Topk Optimization. Finally, the Table 7 compares the
+8While the Hellaswag-bench ranking task can be solved with a sem_map, to extract
+                                                                                               quick-select top-k with the LOTUS quick-select top-k using embedding-
+accuracy values, followed by a structured sorting, our focus is on assessing semantic
+ranking algorithms. We nd this benchmark useful for understanding performance                 based pivot selection. We demonstrate that the optimization is loss-
+trade-os, which may generalize to a wider set of reasoning-based ranking queries.             less, as expected, and can decrease latency by 10%. Specically,
+
+
+
+
+                                                                                        4180
+ (` 1 )   Advancements in Recommender Systems and Multimodal Data Integration
+ (` 2 )         Advancements in Generative Information Retrieval Systems
+ (` 3 )      Advancements in Large Language Models for Various Applications
+ (` 4 )       Advancements in AI Security and Malware Detection Techniques
+ (` 5 )      Advancements in Robotic Navigation and Manipulation Techniques
+Figure 5: Discovered labels from LOTUS sem_group_by("the topic of each
+{paper}", C=5) over a dataset of recent ArXiv papers, scraped from the cs.DB,
+cs.IR, cs.CR and cs.RO domains.                                                        Figure 6: Classication accuracy vs. execution time (s) for the LOTUS
+                                                                                       sem_group_by over the ArXiv dataset. We compare performance of classi-
+                                                                                       fying each paper using the proxy only (red circle) or oracle only (green circle)
+                                                                                       to our approximation with varied accuracy targets, at X = 0.2 (blue stars).
+                                                                                       5.5     Accuracy Guarantees Evaluation
+this optimization is useful where document rank correlates with
+semantic similarity, which is likely on the Scifact dataset.                           Our approximation methods are designed to adaptively learn when
+                                                                                       to leverage the proxy and guarantee the accuracy target is met. To
+                                                                                       demonstrate the accuracy guarantees provided by our optimiza-
+5.4       Topic Analysis on ArXiv Papers                                               tions, we vary the proxy models, recall and precision targets and fail-
+A common unsupervised discovery task requires grouping a large                         ure probability parameters, studying the sem_filter performance
+document corpus by topics and assigning descriptive labels to each                     on the fact-checking task. Figure 7a and Figure 7b demonstrate
+group. We consider this task over a dataset of 647 recent ArXiv                        the average accuracy observed over 20 trials for varied recall and
+articles, which we scraped from the database (cs.DB), information                      precision targets. We evaluate performance with both the Llama-8B
+retrieval (cs.IR), cryptography and security (cs.CR), and robotics                     proxy (solid lines) and a weaker proxy, TinyLlama-1B (dashed lines),
+(cs.RO) domains. We aim to discover 5 key topic labels.                                with a failure probability of X = 0.2 (red) and X = 0.4 (blue). As ex-
+   We can succinctly represent this task using the sem_group_by                        pected, the average recall and precision values increase with higher
+operator with LOTUS. AI UDFs, DocETL and standalone search sys-                        target values for either metric. Figure 7c shows that decreasing the
+tems do not serve operations for semantic group discovery. While                       recall and precision target tends to reduce the number of oracle
+UQE [25] studies optimizations for serving non-LLM aggregations,                       calls. As expected, at a xed accuracy target, our approximation
+e.g., COUNT, with LLM-based group-bys, it does not focus on im-                        requires more oracle calls with the weaker proxy, TinyLlama. We
+plementing, optimizing, and evaluating a standalone group-by op-                       also note that the cost, in number of oracle calls or latency, may
+erator, but suggests a standalone group-by implementation similar                      not necessarily increase linearly with accuracy target, as the gure
+to our sem_group_by reference algorithm. Thus, in this section,                        shows. Intuitively, the number of additional oracle calls required to
+we focus our analysis on understanding the performance of our                          achieve an n increase in accuracy will depend on the target accuracy
+sem_group_by reference algorithm and analyzing our optimiza-                           range. Finally, in Figure 7d we record the percentage of 50 trials
+tion with respect to it. We use Llama-70B and E5 embeddings. For                       that do not meet the recall and precision target, both set to 0.9, us-
+approximations, we use a sample size of 100 and X = 0.2.                               ing the TinyLlama proxy. The results conrm the observed failure
+Results. The sem_group_by consists of two sub-tasks: (a) discover-                     probabilities are lower than the congured failure probabilities, as
+ing representative group labels, and (b) classifying each document.                    expected due to our conservative implementation.
+We rst qualitatively analyze the labels discovered in the rst sub-
+task. Figure 5 shows the discovered labels intuitively align with                      6     RELATED WORK
+recent research topics in the cs.DB, cs.IR, cs.CR, and cs.RO ArXiv                     Data Systems with Batched Inference Primitives. Many prior
+domains e.g., recommendation, retrieval, LLM applications, AI se-                      works support a limited set of simple, batched inference primitives.
+curity, and robotics. Performing this label discovery sub-procedure                    First, AI UDF systems [1, 8, 14, 49, 53, 67] provide a low-level, non-
+took 44.03 seconds, representing a tractable algorithm.                                declarative programming interface supporting batched inference
+   Semantic Groupby Optimization. Turning to the classication                         LLM calls. These systems also integrate vector search, equivalent
+sub-task, we compare the performance of the reference algorithm                        to our sem_search or sem_sim_join, and can combine AI UDFs
+to our approximation, which uses an embedding-based proxy here.                        with non-LLM operations (e.g., average, count). Alternatively, sev-
+Intuitively, the LLM-based classication in the reference algorithm                    eral recent works support domain-specic batched-inference op-
+provides high quality by leveraging the LLM capabilities to reason                     erations [18, 46, 47, 50] for various tasks, including data cleaning,
+about the main topic of each abstract, while the embedding-based                       extract-transform-load (ETL) and conversational agents. In contrast
+model oers an approximation using semantic similarity between                         to these prior works, semantic operators provide a general-purpose
+a topic and abstract. Figure 6 compares the execution time and clas-                   query model that goes beyond simple batched inference primitives
+sication accuracy of the oracle-based reference algorithm (green                      to support semantic operations that require more complex AI al-
+circle), our approximations using both the Llama-70B oracle LLM                        gorithms (e.g., joins, aggregations, and ranking). Our detailed eval-
+and embedding-based proxy at varied accuracy targets (blue stars),                     uation (Section 5) demonstrates the performance limitations of
+and the embedding-based proxy alone (red circle). The proxy-only                       batched-inference LLM execution models.
+baseline is 17.4⇥ faster than the oracle, but about 39% less accu-                     Best-Eort LLM-Based Analytics Systems. Several recent sys-
+rate. Our approximation allows users to declaratively interpolate                      tems [17, 25, 61] go beyond batched inference LLM primitives but
+between these two extremes by varying the accuracy target. We                          provide no accuracy guarantees for their execution. Following a
+also note that the sampling-based procedure used to perform this                       preprint [54] of this work, DocETL [61] proposes to use LLM agents
+optimization took less than 5 seconds, a small relative cost.                          as the query optimizer over LLM-powered operators. This is a
+
+
+
+
+                                                                                4181
+(a) Observed vs Target Re-                  (b) Observed vs Target Pre-                   (c) # Oracle Calls vs Accu-                 (d) Observed vs Cong-
+call                                        cision                                        racy Target                                 ured Failure Probability
+Figure 7: We evaluate statistical accuracy guarantees with our semantic lter for fact-checking on the FEVER dataset. We show (a) average observed recall vs.
+congured recall targets (W' ) , (b) average observed precision vs. congured precision targets (W% ) , and (c) the number of oracle LLM calls vs. congured accuracy
+targets (W' = W% ), using a Llama-70B oracle and either a Llama-8B proxy (dashed lines) or a TinyLlama proxy (solid lines), for two dierent failure probabilities
+(X = 0.2, 0.4) . We also show observed vs. congured failure probabilities using the TinyLlama proxy and Llama-70B oracle, for accuracy targets W' = W% = 0.9.
+promising direction for future work; however, our evaluation (Sec-                    should build on the formalism introduced in this work to develop
+tion 5) demonstrates that DocETL’s agentic approach leads to high                     end-to-end accuracy guarantees for semantic operator queries. In
+variance in performance, no accuracy guarantees, and requires mul-                    this setting, the user could congure an accuracy target for the
+tiple reruns to achieve comparable accuracy to ours, with approxi-                    end-to-end semantic query, and the query optimizer will assign
+mately 1 in 3 runs failing due to optimizer errors, indicating that                   an error budget to each individual operator. Additionally, while
+more work is needed to make these methods robust. UQE [25] also                       this work explores simple cost-based optimizations for semantic
+studies optimizations for LLM-powered operators, proposing an                         operators, more work is needed to develop algorithms that tractably
+embedding-based lter approximation. In contrast to our methods,                      search over many possible execution plans employing various prox-
+UQE provides best-eort performance with no accuracy guaran-                          ies (e.g., cheaper AI models, vector indexes, traditional indexes and
+tees. UQE also studies optimizations for non-LLM aggregations (e.g.,                  operators, or code-generation methods), while rigorously consid-
+average, count) combined with LLM-based lters and group-bys                          ering the relative cost of each. Moreover, developing a framework
+using stratied sampling, which is complementary to this work.                        of equivalence rules for semantic operator execution plans is an
+General ML-based Query Processing. Prior works study the use                          interesting direction towards principled optimizations. Lastly, while
+of non-LLM machine learning (ML) in databases. MADLib [32]                            this work presents several high-quality reference algorithms for
+extends SQL with abstractions for descriptive statistics and ma-                      semantic operators, developing better reference algorithms remains
+chine learning (e.g., regression and classication). NoScope [36],                    an exciting open research question.
+TASTI [40], SUPG [37], BlazeIt [35] and probabilistic predicates [51]
+propose methods to optimize queries involving expensive ML-based
+predicates (e.g., using object detectors) over large datasets, typically              8    CONCLUSION
+in video analytics. In contrast, our work integrates LLMs, which                      In this work, we proposed semantic operators to provide the rst
+motivates our new formalisms for language-based operators and                         formalism with statistical accuracy guarantees for general-purpose,
+novel optimizations. Some optimizations proposed in these prior                       AI-based operations with natural language parameters. Our results
+works, such as model cascades and predicate re-ordering, are also                     across diverse applications, including fact-checking, biomedical
+useful for optimizing LOTUS pipelines with language models.                           multi-label classication, search, and topic analysis, demonstrate
+Table Question Answering. A large body of work, including                             the generality, expressiveness and robustness of the semantic oper-
+retrieval-augmented generation [44] and Text2SQL [70, 71, 73, 75],                    ator model as well as our optimization approach. For each task, we
+serves question-answering via natural language over databases.                        nd that LOTUS programs capture state-of-the-art AI applications
+Typically, the LLM system invokes external tools, e.g., search APIs                   with low development overhead, match or exceed result quality of
+or SQL programs. Interestingly, these agentic workows can in-                        recent LLM-powered analytics systems, and substantially reduce
+stead invoke semantic operator programs as the underlying data-                       cost, while ensuring accuracy guarantees. Since open-sourcing
+processing API. Recent work [19] demonstrates the promise of this                     LOTUS, we have seen a growing user-base, as well as adoption
+approach to outperform baseline TableQA methods.                                      of semantic operators among large database vendors. We believe
+Adoption of Semantic Operators. Based on a preprint [54] of this                      both represent exciting steps towards powerful data systems that
+work, Google recently implemented experimental semantic opera-                        integrate AI reasoning capabilities over vast knowledge corpora.
+tors in BigQuery Dataframes [12], including sem_map, sem_filter,
+sem_join, sem_agg, sem_topk, sem_search, and sem_sim_join.
+                                                                                      ACKNOWLEDGMENTS
+7    LIMITATIONS AND FUTURE WORK                                                      This research was supported in part by aliate members and other
+Semantic operators open up exciting research directions for future                    supporters of the Stanford DAWN project, including Meta, Google,
+work. We briey outline the limitations of this work and compelling                   and VMware, as well as Cisco, SAP, and a Sloan Fellowship. Any
+opportunities of future work towards robust, AI-enabled systems                       opinions, ndings, and conclusions or recommendations expressed
+for semantic bulk processing. Firstly, the accuracy guarantees in                     in this material are those of the authors and do not necessarily
+this work are limited to individual semantic operators. Future work                   reect the views of the sponsors.
+
+
+
+
+                                                                               4182
+REFERENCES                                                                                [30] Matthijs Douze, Alexandr Guzhva, Chengqi Deng, Je Johnson, Gergely Szilvasy,
+ [1] [n.d.]. AI Functions on Databricks. https://docs.databricks.com                           Pierre-Emmanuel Mazaré, Maria Lomeli, Lucas Hosseini, and Hervé Jégou. 2024.
+ [2] [n.d.]. arXiv.org ePrint archive. https://arxiv.org                                       The Faiss library. https://doi.org/10.48550/arXiv.2401.08281 arXiv:2401.08281
+ [3] [n.d.]. Custom Search JSON API | Programmable Search Engine. https://                     [cs].
+     developers.google.com/custom-search/v1/overview                                      [31] Andrew Drozdov, Honglei Zhuang, Zhuyun Dai, Zhen Qin, Razieh Rahimi, Xuan-
+ [4] [n.d.]. Discovery Insight Platform. https://www.ndourview.com                            hui Wang, Dana Alon, Mohit Iyyer, Andrew McCallum, Donald Metzler, and Kai
+ [5] [n.d.]. GAIR-NLP/factool: FacTool: Factuality Detection in Generative AI. https:          Hui. 2023. PaRaDe: Passage Ranking using Demonstrations with Large Language
+     //github.com/GAIR-NLP/factool                                                             Models. https://doi.org/10.48550/arXiv.2310.14408 arXiv:2310.14408 [cs].
+ [6] [n.d.]. Introducing Meta Llama 3: The most capable openly available LLM to           [32] Joe Hellerstein, Christopher Ré, Florian Schoppmann, Daisy Zhe Wang, Eugene
+     date. https://ai.meta.com/blog/meta-llama-3/                                              Fratkin, Aleksander Gorajek, Kee Siong Ng, Caleb Welton, Xixuan Feng, Kun Li,
+ [7] [n.d.]. LangChain. https://www.langchain.com/                                             and Arun Kumar. 2012. The MADlib Analytics Library or MAD Skills, the SQL.
+ [8] [n.d.]. Large Language Model (LLM) Functions (Snowake Cortex) | Snowake                 http://arxiv.org/abs/1208.4165 arXiv:1208.4165 [cs].
+     Documentation. https://docs.snowake.com/user-guide/snowake-cortex/llm-             [33] C. A. R. Hoare. 1961. Algorithm 65: nd. Commun. ACM 4, 7 (July 1961), 321–322.
+     functions                                                                                 https://doi.org/10.1145/366622.366647
+ [9] [n.d.].     LLM with Vertex AI only using SQL queries in BigQuery.                   [34] Je Johnson, Matthijs Douze, and Hervé Jégou. 2017. Billion-scale similarity
+     https://cloud.google.com/blog/products/ai-machine-learning/llm-with-                      search with GPUs. http://arxiv.org/abs/1702.08734 arXiv:1702.08734 [cs].
+     vertex-ai-only-using-sql-queries-in-bigquery                                         [35] Daniel Kang, Peter Bailis, and Matei Zaharia. 2019. BlazeIt: Optimizing Declara-
+[10] [n.d.]. OpenAI Platform. https://platform.openai.com                                      tive Aggregation and Limit Queries for Neural Network-Based Video Analytics.
+[11] [n.d.]. pandas - Python Data Analysis Library. https://pandas.pydata.org/                 http://arxiv.org/abs/1805.01046 arXiv:1805.01046 [cs].
+[12] [n.d.]. python-bigquery-dataframes/notebooks/experimental/semantic_operators.ipynb   [36] Daniel Kang, John Emmons, Firas Abuzaid, Peter Bailis, and Matei Zaharia.
+     at main · googleapis/python-bigquery-dataframes.             https://github.com/          2017. NoScope: Optimizing Neural Network Queries over Video at Scale. http:
+     googleapis/python-bigquery-dataframes/blob/main/notebooks/experimental/                   //arxiv.org/abs/1703.02529 arXiv:1703.02529 [cs].
+     semantic_operators.ipynb                                                             [37] Daniel Kang, Edward Gan, Peter Bailis, Tatsunori Hashimoto, and Matei Zaharia.
+[13] [n.d.]. Querying - LlamaIndex 0.9.11.post1. https://docs.llamaindex.ai/en/stable/         2020. Approximate selection with guarantees using proxies. Proceedings of
+     understanding/querying/querying.html                                                      the VLDB Endowment 13, 12 (Aug. 2020), 1990–2003. https://doi.org/10.14778/
+[14] 2023. Large Language Models for sentiment analysis with Amazon Redshift ML                3407790.3407804
+     (Preview) | AWS Big Data Blog. https://aws.amazon.com/blogs/big-data/large-          [38] Daniel Kang, Edward Gan, Peter Bailis, Tatsunori Hashimoto, and Matei Zaharia.
+     language-models-for-sentiment-analysis-with-amazon-redshift-ml-preview/                   2022. Approximate Selection with Guarantees using Proxies. https://doi.org/10.
+     Section: Amazon Redshift.                                                                 48550/arXiv.2004.00827 arXiv:2004.00827 [cs].
+[15] 2024. mixedbread-ai/mxbai-rerank-large-v1 · Hugging Face. https://huggingface.       [39] Daniel Kang, John Guibas, Peter Bailis, Tatsunori Hashimoto, Yi Sun, and Matei
+     co/mixedbread-ai/mxbai-rerank-large-v1                                                    Zaharia. 2021. Accelerating approximate aggregation queries with expensive
+[16] Grin Adams, Alexander Fabbri, Faisal Ladhak, Eric Lehman, and Noémie El-                 predicates. Proceedings of the VLDB Endowment 14, 11 (July 2021), 2341–2354.
+     hadad. 2023. From Sparse to Dense: GPT-4 Summarization with Chain of Density              https://doi.org/10.14778/3476249.3476285
+     Prompting. http://arxiv.org/abs/2309.04269 arXiv:2309.04269 [cs].                    [40] Daniel Kang, John Guibas, Peter Bailis, Tatsunori Hashimoto, and Matei Zaharia.
+[17] Eric Anderson, Jonathan Fritz, Austin Lee, Bohou Li, Mark Lindblad, Henry                 [n.d.]. Task-agnostic Indexes for Deep Learning-based Queries over Unstructured
+     Lindeman, Alex Meyer, Parth Parmar, Tanvi Ranade, Mehul A. Shah, Benjamin                 Data. ([n. d.]).
+     Sowell, Dan Tecuci, Vinayak Thapliyal, and Matt Welsh. 2024. The Design of an        [41] Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav San-
+     LLM-powered Unstructured Analytics System. https://doi.org/10.48550/arXiv.                thanam, Sri Vardhamanan, Saiful Haq, Ashutosh Sharma, Thomas T. Joshi, Hanna
+     2409.00847 arXiv:2409.00847 [cs].                                                         Moazam, Heather Miller, Matei Zaharia, and Christopher Potts. 2023. DSPy:
+[18] Simran Arora, Brandon Yang, Sabri Eyuboglu, Avanika Narayan, Andrew Hojel,                Compiling Declarative Language Model Calls into Self-Improving Pipelines.
+     Immanuel Trummer, and Christopher Ré. 2023. Language Models Enable Simple                 https://arxiv.org/abs/2310.03714v1
+     Systems for Generating Structured Views of Heterogeneous Data Lakes. http:           [42] Omar Khattab and Matei Zaharia. 2020. ColBERT: Ecient and Eective Passage
+     //arxiv.org/abs/2304.09433 arXiv:2304.09433 [cs].                                         Search via Contextualized Late Interaction over BERT. https://arxiv.org/abs/
+[19] Asim Biswal, Liana Patel, Siddarth Jha, Amog Kamsetty, Shu Liu, Joseph E.                 2004.12832v2
+     Gonzalez, Carlos Guestrin, and Matei Zaharia. 2024. Text2SQL is Not Enough:          [43] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng,
+     Unifying AI and Databases with TAG. https://doi.org/10.48550/arXiv.2408.14717             Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. 2023. Ecient
+     arXiv:2408.14717 [cs].                                                                    Memory Management for Large Language Model Serving with PagedAttention.
+[20] Mark Braverman and Elchanan Mossel. [n.d.]. Noisy sorting without resampling.             https://arxiv.org/abs/2309.06180v1
+     ([n. d.]).                                                                           [44] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir
+[21] Yapei Chang, Kyle Lo, Tanya Goyal, and Mohit Iyyer. 2024. BooookScore: A                  Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim
+     systematic exploration of book-length summarization in the era of LLMs. http:             Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2021. Retrieval-Augmented
+     //arxiv.org/abs/2310.00785 arXiv:2310.00785 [cs].                                         Generation for Knowledge-Intensive NLP Tasks. https://doi.org/10.48550/arXiv.
+[22] Lingjiao Chen, Matei Zaharia, and James Zou. 2023. FrugalGPT: How to Use                  2005.11401 arXiv:2005.11401 [cs].
+     Large Language Models While Reducing Cost and Improving Performance. http:           [45] Percy Liang, Rishi Bommasani, Tony Lee, Dimitris Tsipras, Dilara Soylu, Michi-
+     //arxiv.org/abs/2305.05176 arXiv:2305.05176 [cs].                                         hiro Yasunaga, Yian Zhang, Deepak Narayanan, Yuhuai Wu, Ananya Kumar,
+[23] I.-Chun Chern, Ste Chern, Shiqi Chen, Weizhe Yuan, Kehua Feng, Chunting                  Benjamin Newman, Binhang Yuan, Bobby Yan, Ce Zhang, Christian Cosgrove,
+     Zhou, Junxian He, Graham Neubig, and Pengfei Liu. 2023. FacTool: Factu-                   Christopher D. Manning, Christopher Ré, Diana Acosta-Navas, Drew A. Hudson,
+     ality Detection in Generative AI – A Tool Augmented Framework for Multi-                  Eric Zelikman, Esin Durmus, Faisal Ladhak, Frieda Rong, Hongyu Ren, Huaxiu
+     Task and Multi-Domain Scenarios. https://doi.org/10.48550/arXiv.2307.13528                Yao, Jue Wang, Keshav Santhanam, Laurel Orr, Lucia Zheng, Mert Yuksekgonul,
+     arXiv:2307.13528 [cs].                                                                    Mirac Suzgun, Nathan Kim, Neel Guha, Niladri Chatterji, Omar Khattab, Peter
+[24] E F Codd. 1970. A Relational Model of Data for Large Shared Data Banks. 13, 6             Henderson, Qian Huang, Ryan Chi, Sang Michael Xie, Shibani Santurkar, Surya
+     (1970).                                                                                   Ganguli, Tatsunori Hashimoto, Thomas Icard, Tianyi Zhang, Vishrav Chaudhary,
+[25] Hanjun Dai, Bethany Yixin Wang, Xingchen Wan, Bo Dai, Sherry Yang, Azade                  William Wang, Xuechen Li, Yifan Mai, Yuhui Zhang, and Yuta Koreeda. 2022.
+     Nova, Pengcheng Yin, Phitchaya Mangpo Phothilimthana, Charles Sutton, and                 Holistic Evaluation of Language Models. https://arxiv.org/abs/2211.09110v2
+     Dale Schuurmans. 2024. UQE: A Query Engine for Unstructured Databases.               [46] Yiming Lin, Madelon Hulsebos, Ruiying Ma, Shreya Shankar, Sepanta Zeigham,
+     https://doi.org/10.48550/arXiv.2407.09522 arXiv:2407.09522 [cs].                          Aditya G. Parameswaran, and Eugene Wu. 2024. Towards Accurate and Ecient
+[26] Sanjoy Dasgupta. [n.d.]. The hardness of k-means clustering. ([n. d.]).                   Document Analytics with Large Language Models. http://arxiv.org/abs/2405.
+[27] Shrey Desai and Greg Durrett. 2020. Calibration of Pre-trained Transformers.              04674 arXiv:2405.04674 [cs].
+     https://arxiv.org/abs/2003.07892v3                                                   [47] Chunwei Liu, Matthew Russo, Michael Cafarella, Lei Cao, Peter Baille Chen, Zui
+[28] Karel D’Oosterlinck, Omar Khattab, François Remy, Thomas Demeester, Chris                 Chen, Michael Franklin, Tim Kraska, Samuel Madden, and Gerardo Vitagliano.
+     Develder, and Christopher Potts. 2024. In-Context Learning for Extreme Multi-             2024. A Declarative System for Optimizing AI Workloads. http://arxiv.org/abs/
+     Label Classication. https://doi.org/10.48550/arXiv.2401.12178 arXiv:2401.12178           2405.14696 arXiv:2405.14696 [cs].
+     [cs].                                                                                [48] Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua,
+[29] Karel D’Oosterlinck, François Remy, Johannes Deleu, Thomas Demeester, Chris               Fabio Petroni, and Percy Liang. 2023. Lost in the Middle: How Language Models
+     Develder, Klim Zaporojets, Aneiss Ghodsi, Simon Ellershaw, Jack Collins, and              Use Long Contexts. https://doi.org/10.48550/arXiv.2307.03172 arXiv:2307.03172
+     Christopher Potts. 2023. BioDEX: Large-Scale Biomedical Adverse Drug Event                [cs].
+     Extraction for Real-World Pharmacovigilance. https://doi.org/10.48550/arXiv.         [49] Shu Liu, Asim Biswal, Audrey Cheng, Xiangxi Mo, Shiyi Cao, Joseph E. Gonzalez,
+     2305.13395 arXiv:2305.13395 [cs].                                                         Ion Stoica, and Matei Zaharia. 2024. Optimizing LLM Queries in Relational
+
+
+
+
+                                                                                 4183
+     Workloads. http://arxiv.org/abs/2403.05821 arXiv:2403.05821 [cs].                        [63] Nandan Thakur, Nils Reimers, Andreas Rücklé, Abhishek Srivastava, and Iryna
+[50] Shicheng Liu, Jialiang Xu, Wesley Tjangnaka, Sina J. Semnani, Chen Jie Yu,                    Gurevych. 2021. BEIR: A Heterogenous Benchmark for Zero-shot Evaluation
+     and Monica S. Lam. 2024. SUQL: Conversational Search over Structured and                      of Information Retrieval Models. https://doi.org/10.48550/arXiv.2104.08663
+     Unstructured Data with Large Language Models. https://doi.org/10.48550/arXiv.                 arXiv:2104.08663 [cs].
+     2311.09818 arXiv:2311.09818 [cs].                                                        [64] James Thorne, Andreas Vlachos, Christos Christodoulopoulos, and Arpit Mittal.
+[51] Yao Lu, Aakanksha Chowdhery, Srikanth Kandula, and Surajit Chaudhuri. 2018.                   2018. FEVER: a Large-scale Dataset for Fact Extraction and VERication. In
+     Accelerating Machine Learning Inference with Probabilistic Predicates. In Pro-                Proceedings of the 2018 Conference of the North American Chapter of the Association
+     ceedings of the 2018 International Conference on Management of Data (SIGMOD                   for Computational Linguistics: Human Language Technologies, Volume 1 (Long
+     ’18). Association for Computing Machinery, New York, NY, USA, 1493–1508.                      Papers), Marilyn Walker, Heng Ji, and Amanda Stent (Eds.). Association for
+     https://doi.org/10.1145/3183713.3183751                                                       Computational Linguistics, New Orleans, Louisiana, 809–819. https://doi.org/10.
+[52] Xueguang Ma, Xinyu Zhang, Ronak Pradeep, and Jimmy Lin. 2023. Zero-Shot                       18653/v1/N18-1074
+     Listwise Document Reranking with a Large Language Model. https://arxiv.org/              [65] P. Viola and M. Jones. 2001. Rapid object detection using a boosted cascade of
+     abs/2305.02156v1                                                                              simple features. In Proceedings of the 2001 IEEE Computer Society Conference on
+[53] MotherDuck. [n.d.]. Introducing the prompt() Function: Use the Power of LLMs                  Computer Vision and Pattern Recognition. CVPR 2001, Vol. 1. IEEE Comput. Soc,
+     with SQL! - MotherDuck Blog. https://motherduck.com/blog/sql-llm-prompt-                      Kauai, HI, USA, I–511–I–518. https://doi.org/10.1109/CVPR.2001.990517
+     function-gpt-models/                                                                     [66] Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang,
+[54] Liana Patel, Siddharth Jha, Carlos Guestrin, and Matei Zaharia. 2024. LOTUS:                  Rangan Majumder, and Furu Wei. 2024. Text Embeddings by Weakly-Supervised
+     Enabling Semantic Queries with LLMs Over Tables of Unstructured and Struc-                    Contrastive Pre-training. http://arxiv.org/abs/2212.03533 arXiv:2212.03533 [cs].
+     tured Data. https://doi.org/10.48550/arXiv.2407.11418 arXiv:2407.11418 [cs]              [67] WilliamDAssafMSFT. 2024. Intelligent Applications - Azure SQL Data-
+     version: 1.                                                                                   base. https://learn.microsoft.com/en-us/azure/azure-sql/database/ai-articial-
+[55] Liana Patel, Peter Kraft, Carlos Guestrin, and Matei Zaharia. 2024. ACORN:                    intelligence-intelligent-applications?view=azuresql
+     Performant and Predicate-Agnostic Search Over Vector Embeddings and Struc-               [68] Je Wu, Long Ouyang, Daniel M. Ziegler, Nisan Stiennon, Ryan Lowe, Jan
+     tured Data. Proceedings of the ACM on Management of Data 2, 3 (May 2024),                     Leike, and Paul Christiano. 2021. Recursively Summarizing Books with Human
+     120:1–120:27. https://doi.org/10.1145/3654923                                                 Feedback. https://doi.org/10.48550/arXiv.2109.10862 arXiv:2109.10862 [cs].
+[56] Ronak Pradeep, Sahel Sharifymoghaddam, and Jimmy Lin. 2023. RankVicuna:                  [69] Shirley Wu, Shiyu Zhao, Michihiro Yasunaga, Kexin Huang, Kaidi Cao, Qian
+     Zero-Shot Listwise Document Reranking with Open-Source Large Language                         Huang, Vassilis N. Ioannidis, Karthik Subbian, James Zou, and Jure Leskovec.
+     Models. http://arxiv.org/abs/2309.15088 arXiv:2309.15088 [cs].                                2024. STaRK: Benchmarking LLM Retrieval on Textual and Relational Knowledge
+[57] Ronak Pradeep, Sahel Sharifymoghaddam, and Jimmy Lin. 2023. RankZephyr:                       Bases. https://arxiv.org/abs/2404.13207v2
+     Eective and Robust Zero-Shot Listwise Reranking is a Breeze! http://arxiv.org/          [70] Navid Yaghmazadeh, View Prole, Yuepeng Wang, View Prole, Isil Dillig, View
+     abs/2312.02724 arXiv:2312.02724 [cs].                                                         Prole, Thomas Dillig, and View Prole. 2017. SQLizer: query synthesis from
+[58] Zhen Qin, Rolf Jagerman, Kai Hui, Honglei Zhuang, Junru Wu, Le Yan, Jiaming                   natural language. Proceedings of the ACM on Programming Languages 1, OOPSLA
+     Shen, Tianqi Liu, Jialu Liu, Donald Metzler, Xuanhui Wang, and Michael Ben-                   (Oct. 2017), 1–26. https://doi.org/10.1145/3133887 Publisher: Association for
+     dersky. 2024. Large Language Models are Eective Text Rankers with Pairwise                   Computing Machinery.
+     Ranking Prompting. https://doi.org/10.48550/arXiv.2306.17563 arXiv:2306.17563            [71] Tao Yu, Zifan Li, Zilin Zhang, Rui Zhang, and Dragomir Radev. 2018. TypeSQL:
+     [cs].                                                                                         Knowledge-based Type-Aware Neural Text-to-SQL Generation. https://doi.org/
+[59] Devendra Sachan, Mike Lewis, Mandar Joshi, Armen Aghajanyan, Wen-tau                          10.48550/arXiv.1804.09769 arXiv:1804.09769 [cs].
+     Yih, Joelle Pineau, and Luke Zettlemoyer. 2022. Improving Passage Retrieval              [72] Murong Yue, Jie Zhao, Min Zhang, Liang Du, and Ziyu Yao. 2024. Large Language
+     with Zero-Shot Question Generation. In Proceedings of the 2022 Conference on                  Model Cascades with Mixture of Thoughts Representations for Cost-ecient
+     Empirical Methods in Natural Language Processing. Association for Computational               Reasoning. http://arxiv.org/abs/2310.03094 arXiv:2310.03094 [cs].
+     Linguistics, Abu Dhabi, United Arab Emirates, 3781–3797. https://doi.org/10.             [73] John M Zelle and Raymond J Mooney. 1996. 1996-Learning to Parse Database
+     18653/v1/2022.emnlp-main.249                                                                  Queries Using Inductive Logic Programming. (1996).
+[60] Nihar B. Shah and Martin J. Wainwright. 2016. Simple, Robust and Opti-                   [74] Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, and Yejin Choi. 2019.
+     mal Ranking from Pairwise Comparisons. http://arxiv.org/abs/1512.08949                        HellaSwag: Can a Machine Really Finish Your Sentence? https://doi.org/10.
+     arXiv:1512.08949 [cs, math, stat].                                                            48550/arXiv.1905.07830 arXiv:1905.07830 [cs].
+[61] Shreya Shankar, Tristan Chambers, Tarak Shah, Aditya G. Parameswaran, and                [75] Bin Zhang, Yuxiao Ye, Guoqing Du, Xiaoru Hu, Zhishuai Li, Sun Yang, Chi Harold
+     Eugene Wu. 2024. DocETL: Agentic Query Rewriting and Evaluation for                           Liu, Rui Zhao, Ziyue Li, and Hangyu Mao. 2024. Benchmarking the Text-to-SQL
+     Complex Document Processing. https://doi.org/10.48550/arXiv.2410.12189                        Capability of Large Language Models: A Comprehensive Evaluation. https:
+     arXiv:2410.12189 [cs].                                                                        //doi.org/10.48550/arXiv.2403.02951 arXiv:2403.02951 [cs].
+[62] Weiwei Sun, Lingyong Yan, Xinyu Ma, Shuaiqiang Wang, Pengjie Ren, Zhumin                 [76] Honglei Zhuang, Zhen Qin, Kai Hui, Junru Wu, Le Yan, Xuanhui Wang, and
+     Chen, Dawei Yin, and Zhaochun Ren. 2023. Is ChatGPT Good at Search? Investi-                  Michael Bendersky. 2024. Beyond Yes and No: Improving Zero-Shot LLM Rankers
+     gating Large Language Models as Re-Ranking Agents. https://arxiv.org/abs/                     via Scoring Fine-Grained Relevance Labels. http://arxiv.org/abs/2310.14122
+     2304.09542v2                                                                                  arXiv:2310.14122 [cs].
+
+
+
+
+                                                                                       4184
+

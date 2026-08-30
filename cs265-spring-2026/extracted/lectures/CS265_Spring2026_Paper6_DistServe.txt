@@ -1,0 +1,575 @@
+Outline
+Yinuo - Introduction
+1) what is the problem? - Motivation/background
+2) why is it important? - Motivation/background
+3) why is it hard? - Motivation/background
+          Introduced LLM serving……
+4) why existing solutions do not work? - Problem                  This might be two long of a intro: split to motivation and background? -- Yinuo
+
+Yuanshu - Trade-off analysis
+5) what is the core intuition for the solution
+Prefilling
+Decoding
+
+Ola - Implementation Details? Section 4 from the original paper
+5) what is the core intuition for the solution
+
+Zack - Experiments results
+6) Does the paper prove its claims?
+7) What is the setup of analysis/experiments? is it sufficient?
+
+Ola - Discussion / Conclusion
+8) are there any gaps in the logic/proof?
+9) describe at least one possible next step
+
+Technical Details
+Very technical details, use as back up to answer questions
+
+
+
+
+   Motivation            Background                 Key Idea                        Prefill                          Decode                     Experiment   Discussion
+                                                    Disaggregating Prefill and
+DistServe                                           Decoding for Goodput -
+                                                    optimized Large Language
+By Zhong et. al, 2024                               Model Serving
+
+
+
+                                             Presented by:
+                        Yinuo Zhao, Yuanshu Wang, Zhentian Wu, Ola Kulseng
+                                April 2026, cs265@Harvard University
+       Approach
+
+                   Disaggregating Prefill
+                   and Decoding for        Objective
+                   Goodput-optimized Large
+                   Language Model Serving
+
+             PROBLEM
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+What is large language model serving?
+
+
+
+
+             Running a trained model to answer user requests in real time.
+
+Motivation   Background   Key Idea      Prefill        Decode      Experiment   Discussion
+Why is it important?
+
+
+    “As of 2025, 201 million, or
+    67% of organizations
+    worldwide have adopted LLMs
+    to support their operations with
+    generative AI.” (source)
+
+
+                                                                       Source
+
+
+
+
+Motivation   Background   Key Idea     Prefill   Decode   Experiment    Discussion
+Why Is LLM Serving So Hard?
+
+
+                     High latency                         Expensive
+                     per request                        GPU resources
+                                        Variety of
+                                       Applications
+                                       with different
+                                           needs
+                 Many concurrent                        Hard to balance
+                     users                               speed vs cost
+
+
+
+
+Motivation   Background     Key Idea      Prefill       Decode     Experiment   Discussion
+There are many approaches for better LLM serving.
+Batching & Scheduling: Continuous batching, dynamic batching,
+chunked prefill, request prioritization, shortest-job-first
+scheduling …
+Memory Optimizations: PagedAttention, FlashAttention, KV cache
+compression, KV cache sharing, Activation recomputation …
+Parallelism: Tensor, pipeline, data, operator …
+System & Architecture: Prefill-decode disaggregation, multi-stage
+pipelines, asynchronous execution …
+Model-Level: Quantization, Grouped Query Attention …
+…
+
+    Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Throughput Isn’t Enough -> Goodput
+
+Traditional Metric: Throughput
+
+ ●     Tokens per second
+ ●     Maximizes Utilization
+ ●     But ignores latency constraints
+
+
+
+What We Actually Care About: Goodput
+
+ ●     Requests/sec that meet latency SLOs
+
+
+Motivation   Background   Key Idea       Prefill   Decode   Experiment   Discussion
+Latency Matters: TTFT vs TPOT
+
+
+
+                   TTFT                                       TPOT
+                Time to First Token                       Time Per Output Token
+             “How fast the response starts”             “How fast the response continues”
+
+ Chatbot                                                                 Summarization
+
+                         Latency is not one number, it’s a tradeoff.
+
+
+Motivation       Background    Key Idea       Prefill        Decode        Experiment   Discussion
+LLM serving has 2 stages: Prefilling and Decoding
+
+
+                                                                                             Source: Benjamin Markel,
+                                                                                             2025, Prefill and decode
+                                                                                             for concurrent requests
+
+
+
+
+                          Prefilling                                               Decoding
+     ●       Reads every token                                    ●   Model starts generating the answer
+     ●       Builds and internal Understanding                    ●   First word
+     ●       Prepared to respond                                  ●   Then next word…
+
+
+
+  Parallel                           Determines TTFT             Sequential                   Determines TPOT
+
+Motivation        Background           Key Idea        Prefill            Decode            Experiment        Discussion
+But One Hardware Plan Cannot Fit Both Phases
+
+
+Prefill prefers:                                                 Decoding prefers:
+   ●     Low TTFT                                                 ●   Low TPOT
+   ●     Fast execution of large                                  ●   Large and efficient
+         prompt processing                                            decode batches
+   ●     Often more aggressive                                    ●   Parallelism choices that
+         compute-oriented                                             depend on batch size
+         parallelism                                                  and memory behavior
+
+
+
+
+Motivation      Background         Key Idea   Prefill   Decode        Experiment       Discussion
+Current systems treat LLM inference as a single pipeline
+
+
+                   Request                          GPU                       Response
+
+
+
+                                                  Prefill
+                                                 Decoding
+
+
+                                   ●    Batch multiple requests together
+                                   ●    Maximize GPU utilization
+                                   ●    Goal: high throughput
+
+
+
+Motivation   Background      Key Idea             Prefill            Decode       Experiment   Discussion
+Colocation Leads to Interference
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Essential Insights
+1.    Prefilling is computation bound.
+2.    Decoding is memory bound.
+3.    Their inherent differences makes the optimal parallelization techniques for the
+      different stages incompatible.
+4.    Solution: put prefilling and decoding on different GPUs!
+
+
+
+
+                                                  Ready for the technical things?
+
+
+
+Motivation   Background   Key Idea      Prefill            Decode     Experiment   Discussion
+Prefill and Decode on separate GPUs
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+A placement includes three parts
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+ Intra-op
+
+                          1                2            3
+
+
+
+
+Motivation   Background       Key Idea   Prefill   Decode   Experiment   Discussion
+ Inter-op
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Prefill-only Resource Provisioning
+                                          Transformer Model
+
+
+
+
+                                                                                 First
+                                                                                Token
+          User
+         Prompt
+
+
+
+
+          Optimizing methods                          Batch   &        Parallelism
+
+
+
+ Motivation       Background   Key Idea     Prefill           Decode        Experiment   Discussion
+Prefill is not a “the bigger batch, the better” workload
+                   13B Model
+                                                                      Consequence of a
+                                                                        larger batch ?
+
+
+
+
+                                                               Threshold for maximum input length
+
+
+
+
+              A single A100 GPU is already
+              saturated for one sequence!
+
+
+ Motivation         Background          Key Idea   Prefill   Decode            Experiment      Discussion
+Analysis setup                                             M/D/1 queue
+                                                                                                Request Poisson arrival rate
+
+
+                Model: 66B                      execution time for each request is fixed at D                         RD < 1: meaning the system
+                                                                                                                      must not be overloaded
+
+              GPU: 2x A100
+
+              Input size: 512
+
+              Arrival process:
+              Poisson arrival
+                                                                      execution                                queuing
+                                                                        time                                    delay
+
+
+       Compare                                                                                                   When RD closes to 1,
+                                                   When R is small, execution time
+                                                         dominates TTFT                                         queuing dominates TTFT
+      Inter-op                Intra-op
+
+
+ Motivation      Background          Key Idea               Prefill                     Decode                  Experiment       Discussion
+2-way Inter-op
+                                                                                              Due to negligible interlayer
+                                                                                              activation communication
+
+
+                                                              Dm: slowest stage
+                              Total Request-level latency
+
+
+
+
+              execution time                                                          Queuing delay
+
+
+
+
+ Motivation      Background           Key Idea              Prefill               Decode           Experiment       Discussion
+2-way Intra-op
+
+                                                                              Queuing delay
+
+
+
+
+  Speedup Factor
+     1<K<2
+
+                                                      K is large
+
+                                                 Good GPU collaboration → faster request processing → lighter
+                execution time
+                                                 queue.
+
+       The execution time significantly               K is small
+                 reduced!
+                                                 Communication overhead offsets gains → little speedup → limited
+                                                 queue improvement.
+
+
+
+ Motivation    Background        Key Idea   Prefill                  Decode              Experiment       Discussion
+Intra-op vs Inter-op
+                                                                                  K =1.5
+
+
+                                             Inter is better
+
+
+                                                                                               K =1.9
+
+
+
+                           Intra is better
+
+
+
+
+ Motivation   Background            Key Idea                   Prefill   Decode   Experiment    Discussion
+Intra-op vs Inter-op
+
+                                                       Core Trade-off
+
+                   execution                                                                         waiting
+                   dominates                                                                         dominates
+Low Arrival Rate                   Execution time                                Queuing Delay                     High Arrival Rate
+
+
+
+
+                                      Intra-op                                      Inter-op
+
+
+
+
+        Effect of TTFT SLO      Strict TTFT SLO focuses on: → “First token must be fast” → Cannot tolerate large execution time
+
+
+
+ Motivation        Background        Key Idea               Prefill                 Decode            Experiment         Discussion
+Analysis for Decoding Instance                                                                  Small batch                                Big Batch
+
+
+                                               Same amount of
+                                               movement
+             HBM                                                               GPU Compute
+                               Load Weights
+         (GPU Memory)
+                                                                                                           New Token
+                                               On-chip SRAM
+     ●       Model Weights     Load KV Cache
+                                                (Registers, Shared              Attention
+                                                    Memory)
+
+     ●       Past KV Cache                                                        FFN                         New K,V
+
+
+
+
+                                      Write New KV back to HBM
+                                                                                                             HBM                                                        GPU Compute
+                                                                                                                          Load Weights
+                                                                                                         (GPU Memory)
+                                                                                                                                                                                       New Token
+                                                                                                                                            On-chip SRAM                  Attention
+                                                                                                     ●    Model Weights   Load KV Cache    (Registers, Shared Memory)
+
+                                                                                                     ●    Past KV Cache                                                     FFN        New K,V
+
+
+
+
+                                                                                ...                                                      Write New KV back to HBM
+
+
+
+
+Motivation        Background        Key Idea                         Prefill                Decode                             Experiment                                         Discussion
+Disaggregation Helps batching
+
+
+                                               Prefill GPU 1
+
+                                               Prefill GPU 2
+
+                                               Prefill GPU 3                Decoding GPU
+                                                     .
+                                                     .
+                                                     .
+
+                                               Prefill GPU n
+
+
+
+
+Motivation   Background   Key Idea   Prefill               Decode   Experiment   Discussion
+Performance
+
+
+
+
+             Batching                          Parallelism strategies
+
+
+Motivation   Background   Key Idea   Prefill          Decode       Experiment   Discussion
+Experimental Setup
+Low node-affinity placement algorithm             Metric: Goodput - request/sec meeting
+Models: OPT-13B, OPT-66B, OPT-175B                latency SLO goal (90%)
+Applications:
+                                                  Baselines:
+ ●      Chatbot (ShareGPT),
+                                                   ● vLLM,
+ ●      Code completion(HumanEval),
+                                                   ● DeepSpeed-MII
+ ●      Summarization(LongBench)
+
+
+
+
+Motivation   Background   Key Idea      Prefill             Decode       Experiment   Discussion
+Main Result: Chatbot Application
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Performance Across Other Applications
+Code completion: very strict TTFT
+Summarization: looser TTFT, but more TPOT-sensitive and much longer inputs
+
+
+
+
+ Motivation    Background         Key Idea               Prefill             Decode   Experiment   Discussion
+Overhead Analysis: Is Communication a Problem?
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Ablation Study
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Practical Problem
+
+
+
+       Variable prefill length. Earlier analysis assumed all prompts have the same length,
+       but in reality request lengths vary. That causes pipeline bubbles, especially when
+       using inter-op parallelism for prefill, because different requests take different
+       amounts of time. DistServe addresses this later with workload-aware search and
+       better scheduling.
+       Communication overhead. Disaggregation means the KV cache must be
+       transferred from prefill GPUs to decoding GPUs. For large models and long
+       prompts, this can be a lot of data, so enough bandwidth is needed. The paper
+       argues this is manageable on modern clusters, especially with InfiniBand or
+       intra-node NVLINK, but it adds placement constraints.
+Problem 1: Pipeline bubbles
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Problem 2: KV Cache OOM
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Problem 3: Workload drift
+
+
+
+
+Motivation   Background   Key Idea   Prefill   Decode   Experiment   Discussion
+Thank you!
+
+
+
+
+    Yinuo Zhao          Yuanshu Wang   Zhentian Wu   Ola Tangen
+                                                      Kulseng
+   T.H Chan School of
+      Public Health
+    MS in Health Data
+         Science
+Estimation of SLOs
+Algorithms
+Simulator Accuracy
+Repetition
+
+
+     It is worth noting that when the model can fit into the memory of a
+     single GPU, replication is a competitive option in addition to model
+     parallelism for both prefill and decoding instances, to linearly scale
+     the system’s rate capacity. It may also reduce the queuing delay –
+     as indicated by Eq. 1 – by substituting R with R/N assuming
+     requests are equally dispatched to N replicas, at the cost of
+     maintaining additional replicas of the model weights in GPU
+     memory
+Why RD<1
+In the paper, RD<1is the stability condition for the M/D/1 queue that models the
+prefill system. Here, R is the request arrival rate and D is the execution time per
+request, so their product RD represents server utilization. This value must stay
+below 1 because the system can only remain stable when requests arrive more
+slowly than they can be completed on average. If RD≥1, then work enters the
+system at least as fast as it leaves, so the queue keeps growing and the waiting
+time becomes unbounded. That is why the paper’s TTFT formula is only valid
+under RD<1: as RRD approaches 1, the denominator in the queuing-delay term
+becomes very small, causing latency to increase sharply.
+How to choose?
+After disaggregation, DistServe profiles each phase separately. For prefill, it
+usually uses small batches and chooses intra-op or inter-op depending on whether
+TTFT is dominated more by execution time or queueing. For decoding, it tries to
+increase batch size first, then uses intra-op when TPOT is tight and inter-op when
+it wants more throughput. In the end, it searches for the combination that gives the
+best goodput under both TTFT and TPOT constraints.”
+Why is prefill modeled as an M/D/1 queue?
+Because in the paper’s simplified analysis, requests arrive randomly following a
+Poisson process, and each request has the same service time since the input
+length is fixed. That matches the M/D/1 setting: random arrivals, deterministic
+service time, and one server.
+Does disaggregation introduce communication overhead?
+Yes, because the KV cache has to be transferred from prefill GPUs to decoding
+GPUs. But the paper argues that with good placement and high-bandwidth
+connections like NVLink or InfiniBand, this overhead is relatively small compared
+with the performance gain from separating the two phases.
+What does “goodput” mean here?
+Goodput means the maximum request rate the system can serve while still
+meeting the latency target for a required percentage of requests, such as 90%. So
+it is not just raw throughput — it is throughput under SLO constraints.
+So how does DistServe actually choose the strategy?
+It treats prefill and decoding separately. For prefill, it chooses the batching and
+parallelism that best satisfy TTFT. For decoding, it chooses the batching and
+parallelism that best satisfy TPOT. Then it searches over different GPU allocations
+and parallelism combinations to find the highest goodput while still meeting both
+SLOs.
+

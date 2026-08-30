@@ -1,0 +1,77 @@
+AI SYSTEMS INTRO
+From LLM Productivity to Tailored Enterprise Growth
+
+
+
+
+Stratos Idreos
+FinLab @McKinsey is hiring
+
+If interested reach out to:
+Gabriel_Morgan_Asaftei@mckinsey.com
+     Goals
+     1) Current state-of-the-art in AI systems
+     2) De nitions
+     3) Design space
+     4) What is next
+     5) Skills you may need/want
+
+
+              A small set of “simple” tricks/concepts
+fi
+DATA   LLMs   AGENTS   ML
+                        ?
+                   ML
+          AGENTS
+       LLMs
+DATA
+AI Systems
+The growing ecosystem of specialized tools,
+libraries, and platforms, each addressing a
+distinct piece of the AI lifecycle:
+1) training & ne-tuning models,
+2) managing & querying data,
+3) building & orchestrating agents,
+4) …
+       fi
+A LOT OF INNOVATION POSSIBLE ON FOUNDATIONS
+          THE FOUNDATIONS FOR DATA
+
+
+
+
+A LOT OF INNOVATION POSSIBLE ON FOUNDATIONS
+                                              X
+          THE FOUNDATIONS FOR DATA
+
+
+
+
+A LOT OF INNOVATION POSSIBLE ON FOUNDATIONS
+                          X
+                                              X
+          THE FOUNDATIONS FOR DATA
+
+
+
+
+A LOT OF INNOVATION POSSIBLE ON FOUNDATIONS
+                          X X
+                            X
+          THE FOUNDATIONS FOR DATA
+
+
+
+
+A LOT OF INNOVATION POSSIBLE ON FOUNDATIONS
+In practice, building an AI solution means selecting and manually stitching
+together >>1 AI systems from a massive set of tools into a working whole
+ THERE ARE THREE CRITICAL
+FEATURES IN AI DEVELOPMENT
+   SPEED, SPEED, & SPEED
+Time to market, Better models, More models
+               ~90%
+ OF EFFORT IN AI GOES INTO “GLUE ENGINEERING”
+
+OF LATENCY AND $$$ IN AI IS BECAUSE OF STORAGE
+

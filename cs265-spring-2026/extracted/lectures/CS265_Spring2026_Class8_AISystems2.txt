@@ -1,0 +1,11 @@
+In practice, building an AI solution means selecting and manually stitching
+together >>1 AI systems from a massive set of tools into a working whole
+ THERE ARE THREE CRITICAL
+FEATURES IN AI DEVELOPMENT
+   SPEED, SPEED, & SPEED
+Time to market, Better models, More models
+               ~90%
+ OF EFFORT IN AI GOES INTO “GLUE ENGINEERING”
+
+OF LATENCY AND $$$ IN AI IS BECAUSE OF STORAGE
+

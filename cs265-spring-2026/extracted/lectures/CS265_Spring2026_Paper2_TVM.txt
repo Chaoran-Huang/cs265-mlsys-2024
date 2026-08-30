@@ -1,0 +1,877 @@
+                      TVM
+                      An End-to-End Optimizing Compiler for Deep Learning
+
+
+                      Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+                      Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, Arvind
+                      Krishnamurthy
+
+
+
+
+CS265 | spring 2026                                                                                    Arian Nzioka | 1
+                      TVM
+                      An End-to-End Optimizing Compiler for Deep Learning
+
+
+                      Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+                      Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, Arvind
+                      Krishnamurthy
+
+
+
+
+CS265 | spring 2026                                                                                    Arian Nzioka | 2
+                      TVM
+                      An End-to-End Optimizing Compiler for Deep Learning
+
+
+                      Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+                      Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, Arvind
+                      Krishnamurthy
+
+
+
+
+CS265 | spring 2026                                                                                    Arian Nzioka | 3
+                      TVM
+                      An End-to-End Optimizing Compiler for Deep Learning
+
+
+                      Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+                      Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, Arvind
+                      Krishnamurthy
+
+
+
+
+CS265 | spring 2026                                                                                    Arian Nzioka | 4
+                      TVM                   2018               2016
+
+
+                      An End-to-End Optimizing Compiler for Deep Learning
+
+
+                      Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+                      Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, Arvind
+                      Krishnamurthy
+
+
+
+
+CS265 | spring 2026                                                                                    Arian Nzioka | 5
+                           model
+                               p ~ engineers
+                                                n ~ frameworks
+
+             imagine ...
+
+
+
+
+                           deploy              m ~ hardware env.
+
+
+
+
+CS265 | spring 2026                                                6
+                                              model
+                                                  p ~ engineers
+                                                                   n ~ frameworks
+
+             imagine ...
+
+             in a case where:
+                 p is finite                      optimization        compiler
+             		n is infinite
+             			m is evolving / growing ...
+
+                                              deploy              m ~ hardware env.
+
+
+
+
+CS265 | spring 2026                                                                   7
+                                                         model
+                                                              p ~ engineers
+                                                                               n ~ frameworks
+
+             imagine ...
+
+             in a case where:
+                                                              optimization        compiler
+                      the goal is to optimize each hardware
+                      environment ...
+
+                                                         deploy               m ~ hardware env.
+
+
+
+
+CS265 | spring 2026                                                                               8
+                                  model
+                                      p ~ engineers
+                                                       n ~ frameworks
+
+
+
+               TVM was designed
+               to solve this          optimization       compiler
+               bottleneck ...
+
+
+
+                                  deploy              m ~ hardware env
+
+
+
+
+CS265 | spring 2026                                                      9
+                        model frameworks
+
+
+
+
+                      hardware architectures
+
+
+
+
+CS265 | spring 2026                            10
+                      INPUT ~ naive algorithm
+
+
+
+
+CS265 | spring 2026                             11
+                 INPUT
+                         TVM optimization
+
+
+                          OUTPUT ~ optimized naive algorithm
+
+
+
+
+CS265 | spring 2026                                            12
+    INPUT
+
+
+
+                      TVM
+
+
+
+
+                            OUTPUT
+
+
+
+CS265 | spring 2026                  13
+                           model frameworks
+
+
+
+                 TVM
+
+
+
+
+                       hardware deployable module
+CS265 | spring 2026                                 14
+                            model frameworks
+
+
+
+                 TVM
+
+
+
+                       exposes computational graphs
+
+
+
+
+                        hardware deployable module
+CS265 | spring 2026                                   15
+                                      model frameworks
+
+
+
+                 TVM
+
+
+                       optimizes tensor operations
+                                exposes computational graphs
+
+
+
+
+                                 hardware deployable module
+CS265 | spring 2026                                            16
+                                          model frameworks
+
+
+
+                 TVM
+                       automates optimization
+
+                          optimizies tensor operations
+                                    exposes computational graphs
+
+
+
+
+                                     hardware deployable module
+CS265 | spring 2026                                                17
+                                                  model frameworks
+
+
+
+                 TVM
+                       compiles
+                           automates optimization
+
+                                  optimizes tensor operations
+                                            exposes computational graphs
+
+
+
+
+                                             hardware deployable module
+CS265 | spring 2026                                                        18
+                                                 model frameworks
+
+
+
+                 TVM
+                       a compiler that ...
+
+                       		 exposes computational graphs
+                       			searches for optimized tensor operations
+                       				automates the entire pipeline => ML
+                       					generates low-level programs for deployment
+
+
+
+
+                                             hardware deployable module
+CS265 | spring 2026                                                       19
+                                  model frameworks
+                      input
+
+
+
+
+                                     optimizing
+                      transform    computational
+                                      graphs
+
+
+
+
+CS265 | spring 2026                                  20
+                                              model frameworks
+                      input
+
+
+
+
+                                        computational graph rewriting
+                      transform
+                                  operator   constant    memory      data
+                                   fusion    folding    pre-alloc   layouts
+
+
+
+
+CS265 | spring 2026                                                           21
+                      naive graph              optimized graph
+
+
+
+
+                                    operator
+                                    fusion
+
+
+
+
+CS265 | spring 2026                                              22
+                      naive graph                    optimized graph
+
+
+
+
+                                    data
+                                    layout
+                                    transformation
+
+
+
+
+CS265 | spring 2026                                                    23
+                                               optimized graph
+                      naive graph
+
+
+
+
+                                    memory
+                                    planning
+
+
+
+
+CS265 | spring 2026                                              24
+                      optimized graph
+
+
+
+
+                                                         +1.2x
+
+
+
+
+                                        1.2x to 2x speedup by operator reducing memory access
+
+CS265 | spring 2026                                                                             25
+                                                          model frameworks
+                      input
+
+
+
+
+                                                         computational graph
+
+                      transform
+                                                            graph rewriting
+
+                                                    optimized computational graph
+                      operator-level
+                      optimization                         tensor operations
+
+                                       schedule   nested              tensorization   latency
+                                       space      parallelism &                       hiding
+                                                  cooperation
+
+
+CS265 | spring 2026                                                                             26
+         tensor expression language and schedule space
+
+
+
+
+CS265 | spring 2026                                      27
+         tensor expression language and schedule space
+
+
+
+
+                                     m, n, h = t.var(‘m’), t.var(‘n’), t.var(‘h’)
+                                     A = t.placeholder((m, h), name=’A’)
+                                     B = t.placeholder((n, h), name=’B’)
+                                     k = t.reduce_axis((0, h), name=’k’)
+                                     C = t.compute((m, n), lambda y,x:
+                                     						t.sum(A[k,y] * B[k,x], axis=k))
+
+
+
+
+CS265 | spring 2026                                                                 28
+         tensor expression language and schedule space
+
+         schedule
+         primitives
+
+
+
+
+CS265 | spring 2026                                      29
+         tensor expression language and schedule space
+
+
+
+
+                       optimized tensor algorithm
+
+
+
+
+CS265 | spring 2026                                      30
+      naive
+
+
+
+      schedule
+      primitives
+
+
+
+                      optimized
+
+
+
+CS265 | spring 2026               31
+         nested parallelism with cooperation
+
+
+
+                                               memory scopes
+
+
+
+
+CS265 | spring 2026                                            32
+         nested parallelism with cooperation
+
+
+
+                                               memory scopes
+                                               explicit memory declaration
+
+
+
+
+                                               memory barrier is an
+                                               automated insertion
+
+
+
+
+CS265 | spring 2026                                                          33
+         latency hiding
+
+
+
+
+                       .ld     .exe     .ld   .exe   .ld   .exe   .ld   .exe
+                        0       0        1     1      2     2      n     n
+
+
+
+                      unoptimized pipeline
+
+
+
+
+CS265 | spring 2026                                                            34
+         latency hiding
+
+                       .ld      .exe        .ld    .exe    .ld   .exe   .ld   .exe
+                        0        0           1      1       2     2      n     n
+
+
+
+                      unoptimized pipeline
+
+                      .ld    .ld       .ld        .ld
+                       0      1         2          n
+
+
+                             .exe      .exe       .exe    .exe
+                              0         1          2       n
+
+
+
+                      with latency hiding
+CS265 | spring 2026                                                                  35
+         latency hiding
+
+
+
+
+                          .ld   .ld    .ld
+                           0     1      n
+
+
+                                .exe   .exe   .exe
+                                 0      1      n
+
+
+
+
+CS265 | spring 2026                                  36
+         latency hiding
+
+            .ld       .ld    .ld
+             0         1      n
+                                                for vthread tx in range(2):
+                      .exe   .exe   .exe
+                                                   acc_buffer CL[8]
+                       0      1      n             inp_buffer AL[8]
+                                                   ex.push_dep_to(ld)
+                                                   for k in range(128):
+      for vthread tx in range(2):               		ld.pop_dep_from(ex)
+         acc_buffer CL[8]                       		ld.dma_copy2d(AL,AL[k] [tx*8:tx*8+8])
+         inp_buffer AL[8]                       		ld.push_dep_to(ex)
+         for k in range(128):                   		
+      		ld.dma_copy2d(AL,AL[k] [tx*8:tx*8+8])   		ex.pop_dep_from(ld)
+      		ex.accumulate(AL, CL)                   		ex.accumulate(AL, CL)
+                                                		ex.push_dep_to(ld)
+
+                                                  ld.pop_dep_from(ex)
+
+
+
+
+CS265 | spring 2026                                                                       37
+         latency hiding                                     acc_buffer CL[2][8]
+                                                            inp_buffer AL[2][8]
+                                                        0   ex.push_dep_to(ld)
+            .ld       .ld    .ld                            ex.push_dep_to(ld)
+             0         1      n                         1
+                                                            for k in range(128):
+                                                               ld.pop_dep_from(ex)
+                      .exe   .exe   .exe                0      ld.dma_copy2d(AL[0],AL[k][0:8])
+                       0      1      n                         ld.push_dep_to(ex)
+                                                            		
+                                                               ld.pop_dep_from(ex)
+                                                        1      ld.dma_copy2d(AL[1],AL[k][8:16])
+                                                               ld.push_dep_to(ex)
+                                                            		
+                                                               ex.pop_dep_from(ld)
+                      .ld    .ld           .ld    .ld   0      ex.accumulate(AL[0], CL[0])
+                       0      1             2      3           ex.push_dep_to(ld)
+
+                                                               ex.pop_dep_from(ld)
+                                                        1      ex.accumulate(AL[1], CL[1])
+                             .exe          .exe                ex.push_dep_to(ld)
+                              0             1           2   ld.pop_dep_from(ex)
+                                                        3   ld.pop_dep_from(ex)
+
+
+
+CS265 | spring 2026                                                                               38
+         latency hiding                        acc_buffer CL[2][8]
+                                               inp_buffer AL[2][8]
+                                           0   ex.push_dep_to(ld)
+            .ld       .ld    .ld               ex.push_dep_to(ld)
+             0         1      n
+                                               for k in range(128):
+                                                  ld.pop_dep_from(ex)
+                      .exe   .exe   .exe   0      ld.dma_copy2d(AL[0],AL[k][0:8])
+                       0      1      n            ld.push_dep_to(ex)
+                                               		
+                                                  ld.pop_dep_from(ex)
+                                                  ld.dma_copy2d(AL[1],AL[k][8:16])
+                                                  ld.push_dep_to(ex)
+                                               		
+                                                  ex.pop_dep_from(ld)
+                      .ld                         ex.accumulate(AL[0], CL[0])
+                       0                          ex.push_dep_to(ld)
+
+                                                  ex.pop_dep_from(ld)
+                                                  ex.accumulate(AL[1], CL[1])
+                             .exe                 ex.push_dep_to(ld)
+                              0                ld.pop_dep_from(ex)
+                                               ld.pop_dep_from(ex)
+
+
+
+CS265 | spring 2026                                                                  39
+         latency hiding                              acc_buffer CL[2][8]
+                                                     inp_buffer AL[2][8]
+                                                 0   ex.push_dep_to(ld)
+            .ld       .ld    .ld                     ex.push_dep_to(ld)
+             0         1      n
+                                                     for k in range(128):
+                                                        ld.pop_dep_from(ex)
+                      .exe   .exe   .exe         0      ld.dma_copy2d(AL[0],AL[k][0:8])
+                       0      1      n                  ld.push_dep_to(ex)
+                                                     		
+                                                        ld.pop_dep_from(ex)
+                                                        ld.dma_copy2d(AL[1],AL[k][8:16])
+                                                        ld.push_dep_to(ex)
+                                                     		
+                                                        ex.pop_dep_from(ld)
+                      .ld                  .ld   0      ex.accumulate(AL[0], CL[0])
+                       0                    2           ex.push_dep_to(ld)
+
+                                                        ex.pop_dep_from(ld)
+                                                        ex.accumulate(AL[1], CL[1])
+                             .exe                       ex.push_dep_to(ld)
+                              0                  2   ld.pop_dep_from(ex)
+                                                     ld.pop_dep_from(ex)
+
+
+
+CS265 | spring 2026                                                                        40
+         latency hiding                               acc_buffer CL[2][8]
+                                                      inp_buffer AL[2][8]
+                                                  0   ex.push_dep_to(ld)
+            .ld       .ld    .ld                      ex.push_dep_to(ld)
+             0         1      n                   1
+                                                      for k in range(128):
+                                                         ld.pop_dep_from(ex)
+                      .exe   .exe   .exe          0      ld.dma_copy2d(AL[0],AL[k][0:8])
+                       0      1      n                   ld.push_dep_to(ex)
+                                                      		
+                                                         ld.pop_dep_from(ex)
+                                                  1      ld.dma_copy2d(AL[1],AL[k][8:16])
+                                                         ld.push_dep_to(ex)
+                                                      		
+                                                         ex.pop_dep_from(ld)
+                      .ld    .ld                         ex.accumulate(AL[0], CL[0])
+                       0      1                          ex.push_dep_to(ld)
+
+                                                         ex.pop_dep_from(ld)
+                                                         ex.accumulate(AL[1], CL[1])
+                             .exe          .exe          ex.push_dep_to(ld)
+                              0             1         ld.pop_dep_from(ex)
+                                                      ld.pop_dep_from(ex)
+
+
+
+CS265 | spring 2026                                                                         41
+         latency hiding                                     acc_buffer CL[2][8]
+                                                            inp_buffer AL[2][8]
+                                                        0   ex.push_dep_to(ld)
+            .ld       .ld    .ld                            ex.push_dep_to(ld)
+             0         1      n                         1
+                                                            for k in range(128):
+                                                               ld.pop_dep_from(ex)
+                      .exe   .exe   .exe                0      ld.dma_copy2d(AL[0],AL[k][0:8])
+                       0      1      n                         ld.push_dep_to(ex)
+                                                            		
+                                                               ld.pop_dep_from(ex)
+                                                        1      ld.dma_copy2d(AL[1],AL[k][8:16])
+                                                               ld.push_dep_to(ex)
+                                                            		
+                                                               ex.pop_dep_from(ld)
+                      .ld    .ld           .ld    .ld   0      ex.accumulate(AL[0], CL[0])
+                       0      1             2      3           ex.push_dep_to(ld)
+
+                                                               ex.pop_dep_from(ld)
+                                                        1      ex.accumulate(AL[1], CL[1])
+                             .exe          .exe                ex.push_dep_to(ld)
+                              0             1           2   ld.pop_dep_from(ex)
+                                                        3   ld.pop_dep_from(ex)
+
+
+
+CS265 | spring 2026                                                                               42
+         latency hiding
+
+            .ld       .ld    .ld
+             0         1      n
+
+
+                      .exe   .exe   .exe
+                       0      1      n
+
+
+
+
+                      .ld    .ld           .ld    .ld
+                       0      1             2      3
+
+
+                             .exe          .exe
+                              0             1
+
+                                                        performance on all ResNet layers increased from 70% to 88%
+                                                        with latency hiding
+CS265 | spring 2026                                                                                                  43
+                                                        model frameworks
+                      input
+
+
+
+
+                                                       computational graph
+
+                      transform                             graph rewriting
+
+                                                  optimized computational graph
+                      operator-level
+                      optimization     tensor expressions                 optimization primitives
+
+                      auto-tuning                    automating optimization
+
+                                          machine learning           device pool
+                                          optimizer                  and rpc
+
+
+
+
+CS265 | spring 2026                                                                                 44
+         ML-Based cost model
+
+                               schedule
+                               exploration
+
+                               query: Loop AST
+                               AST: Abstract Syntax Tree
+
+
+
+
+                               feature extraction
+                               loop annotations
+
+                               memory access counts
+
+
+
+
+                               backend tracker
+CS265 | spring 2026                                        45
+         ML-Based cost model
+
+                               schedule
+                               exploration
+
+                               query: Loop AST
+         TreeRNN               AST: Abstract Syntax Tree
+
+
+
+
+                               feature extraction
+                               loop annotations
+                                                           XGBoost
+                               memory access counts
+
+
+
+
+                               backend tracker
+CS265 | spring 2026                                                  46
+         ML-Based cost model
+
+                               schedule
+                               exploration
+
+                               query: Loop AST
+         TreeRNN               AST: Abstract Syntax Tree
+
+
+
+
+                               feature extraction
+                               loop annotations
+                                                           XGBoost
+                               memory access counts
+
+
+
+
+                               backend tracker
+CS265 | spring 2026                                                  47
+         distributed device pool and RPC   RPC: REMOTE PROCEDURE CALL
+
+
+
+
+               schedule
+               exploration
+
+               query: Loop AST
+
+               feature extraction
+                loop annotations
+
+                memory access counts
+
+
+
+
+               backend tracker
+CS265 | spring 2026                                                     48
+         performance
+
+               schedule
+               exploration
+
+               query: Loop AST
+
+               feature extraction
+                loop annotations
+
+                memory access counts
+
+
+
+
+               backend tracker
+                                       1.5x speed up at 0.67ms delta per prediction (XGBoost)
+
+CS265 | spring 2026                                                                             49
+                                        model frameworks
+
+
+
+                 TVM                   computational graph
+
+                                            graph rewriting
+
+                                  optimized computational graph
+
+                       tensor expressions                 optimization primitives
+
+                                            ML Automated
+                                             Optimizer
+
+                                    optimized low level program
+
+
+                                   hardware deployable module
+CS265 | spring 2026                                                                 50
+         evaluation: vanilla deep learning accelerator
+
+
+
+
+                      VDLA Hardware design overview
+
+CS265 | spring 2026                                      51
+         evaluation: vanilla deep learning accelerator
+
+
+
+
+        ResNet
+        cnn test
+                                                                  40x
+
+
+
+
+                                  FPGA performance boost by 40x
+
+CS265 | spring 2026                                                     52
+                      faster computation;
+                         user responsiveness
+                         more work per time = scale models faster
+
+                      portability:
+                         deploy models to more hardware backends
+
+                      cost:
+                         automation reduces cost of development
+
+
+
+
+CS265 | spring 2026                                                 53
+       possible next steps
+
+
+
+
+CS265 | spring 2026          54
+       possible next steps
+
+
+
+
+CS265 | spring 2026          55
+       possible next steps
+
+
+
+
+CS265 | spring 2026          56
+

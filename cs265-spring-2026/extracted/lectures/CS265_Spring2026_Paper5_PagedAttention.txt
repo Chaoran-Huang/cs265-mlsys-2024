@@ -1,0 +1,535 @@
+vLLM:
+PagedAttention
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang,
+Ying Sheng, Lianmin Zheng, Cody Hao Yu,
+Joseph E. Gonzalez, Hao Zhang, Ion Stoica
+
+Presenters: Kevin He, Zac Sardi-Santos,
+Itzel Sanchez, Elena Ghazi
+What is KV-Cache?
+Recall: Attention
+     Animations
+
+
+
+https://kevinhe.me/cs264-vllm/index.html
+           How does KV-cache scale?
+KV-Cache size = 2 * batch size * sequence
+length * # layers * hidden size * precision
+
+
+
+
+  *for standard multi-head attention
+GPT3: 175B parameters, INT8, Batch size = 16
+
+
+
+
+                 Sequence Length
+             Discussion
+How might we allocate GPU memory to the
+              KV-Cache?
+Why might dynamically growing/shrinking
+  KV-cache lead to wasted memory?
+What is the effect of wasted GPU memory
+       on total token throughput?
+Problem:
+Memory
+Fragmentation
+     Recall: CPU Virtual Memory
+
+
+
+
+What if we applied this technique to KV-cache?
+Solution: Paging
+KV-Cache and
+Attention
+Parallel Sampling & Beam Search
+Solutions: PagedAttention & vLLM
+
+                         Serving system
+
+                            vLLM
+
+
+
+                      PagedAttention
+                       Attention algorithm
+
+
+
+       Rigid contiguous storage 🡪 flexible block-based storage
+OS virtual memory analogy
+                 Operating systems
+
+                  Program’s logical view
+
+                        Logical page
+
+
+
+
+                         Page table
+                   Maps logical to physical
+
+
+
+
+                        Physical page
+                 Where data lives in RAM
+
+
+ Program can behave as if memory is one continuous space.
+ OS does not have to reserve all physical memory in advance.
+OS virtual memory analogy
+                 Operating systems                                            vLLM
+
+                  Program’s logical view                       Next logical chunk of the request’s cache
+
+                        Logical page                       ↔              Logical KV block
+
+
+
+
+                         Page table                       ↔                 Block table
+                   Maps logical to physical                            Maps logical to physical
+
+
+
+
+                        Physical page                     ↔              Physical KV block
+                 Where data lives in RAM                       Where KV cache lives in GPU memory
+
+
+ Program can behave as if memory is one continuous space.
+ OS does not have to reserve all physical memory in advance.
+Why is block-based KV-cache management useful?
+             Logical KV blocks                     Block table                Physical KV blocks (GPU DRAM)
+
+
+                                          L#   Physical block #   # filled     P1    years     ago
+Block 0                     and   seven
+
+
+                                                         —
+Block 1   years
+                                                                               P3
+                                                         —
+Block 2                                                                                         ···
+                                                         —
+                                                                               P7    Four               and    seven
+
+
+
+                                                                                              Block size = 4
+
+
+   Allocate on demand + non-contiguous placement → less waste → more requests fit in memory
+
+
+
+    = prompt KV cache                                                        = reserved (future use)
+Step ① — Prefill: reserve only what the prompt needs
+
+             Logical KV blocks                      Block table                Physical KV blocks (GPU DRAM)
+
+
+                                          L#    Physical block #   # filled     P1    years     ago
+Block 0   Four     score    and   seven
+
+
+                                                          —
+Block 1   years    ago      our   resv.
+                                                                                P3
+                                                          —
+Block 2
+
+                                                          —
+                                                                                P7    Four              and   seven
+
+
+
+
+                   7 prompt tokens → only 2 blocks allocated (not max sequence length)
+
+
+
+    = prompt KV cache                                                         = reserved (future use)
+Step ① — Prefill: reserve only what the prompt needs
+
+             Logical KV blocks                      Block table                Physical KV blocks (GPU DRAM)
+
+
+                                          L#    Physical block #   # filled     P1    years     ago
+Block 0   Four     score    and   seven
+
+                                          0            7              4
+Block 1   years    ago      our   resv.
+                                                                                P3
+                                          1            1              3
+Block 2
+
+                                                           —
+                                                                                P7    Four              and   seven
+
+
+
+
+                   7 prompt tokens → only 2 blocks allocated (not max sequence length)
+
+
+
+    = prompt KV cache                                                         = reserved (future use)
+Step ① — Prefill: reserve only what the prompt needs
+
+             Logical KV blocks                      Block table                    Physical KV blocks (GPU DRAM)
+
+
+                                          L#    Physical block #   # filled            P1   years   ago     our
+Block 0   Four     score    and   seven                                                                           resv.
+
+
+                                          0            7              4
+Block 1   years    ago      our   resv.
+                                                                                       P3
+                                          1            1              3       Cross!
+
+Block 2                                                                                              ···
+                                                           —
+                                                                                       P7   Four    score   and   seven
+
+
+
+
+                   7 prompt tokens → only 2 blocks allocated (not max sequence length)
+
+
+
+    = prompt KV cache                                                            = reserved (future use)
+Step ② — First decode: “fathers” fills the last open slot
+
+              Logical KV blocks                               Block table                Physical KV blocks (GPU DRAM)
+
+
+                                                L#        Physical block #   # filled     P1    years     ago     our   fathers
+ Block 0   Four     score     and    seven
+
+                                                0                7              4
+ Block 1   years    ago       our   fathers
+                                                                                          P3
+                                                1                1           3→4
+ Block 2                                                                                                   ···
+                                                                     —
+                                                                                          P7    Four     score    and   seven
+
+
+
+
+                            Reserved slot absorbs the new token — no allocation needed
+
+
+
+     = prompt KV cache                        = new token (this step)                   = reserved (future use)
+Step ② — First decode: “fathers” fills the last open slot
+
+              Logical KV blocks                               Block table                Physical KV blocks (GPU DRAM)
+
+
+                                                L#        Physical block #   # filled     P1    years     ago     our   fathers
+ Block 0   Four     score     and    seven
+
+                                                0                7              4
+ Block 1   years    ago       our   fathers
+                                                                                          P3
+                                                1                1              4
+ Block 2                                                                                                   ···
+                                                                     —
+                                                                                          P7    Four     score    and   seven
+
+
+
+
+                            Reserved slot absorbs the new token — no allocation needed
+
+
+
+     = prompt KV cache                        = new token (this step)                   = reserved (future use)
+Step ③ — Second decode: block full → allocate on demand
+
+              Logical KV blocks                              Block table                Physical KV blocks (GPU DRAM)
+
+
+                                               L#        Physical block #   # filled     B1    years     ago     our   fathers
+Block 0    Four     score    and   seven
+
+                                               0                7              4
+Block 1    years    ago      our   fathers
+                                                                                         B3 brought
+                                               1                1              4
+Block 2   brought                                                                                         ···
+                                               2                3              1
+
+                                                                                         B7    Four     score    and   seven
+
+
+
+
+                            Block full → allocate one new physical block on demand
+
+
+
+    = prompt KV cache                        = new token (this step)                   = reserved (future use)
+Key insight — Why does this design matter?
+              Logical KV blocks                       Block table               Physical KV blocks (GPU DRAM)
+
+
+                                             L#   Physical block #   # filled   P1   years   ago     our   fathers
+Block 0    Four     score    and   seven
+
+                                             0           7              4
+Block 1    years    ago      our   fathers
+                                                                                P3 brought
+                                             1           1              4
+Block 2   brought                                                                             ···
+                                             2           3              1
+
+                                                                                P7   Four    score   and   seven
+
+
+
+
+             No pre-allocation
+
+           KV cache grows
+  block by block with the sequence
+Key insight — Why does this design matter?
+              Logical KV blocks                       Block table               Physical KV blocks (GPU DRAM)
+
+
+                                             L#   Physical block #   # filled   P1   years   ago     our   fathers
+Block 0    Four     score    and   seven
+
+                                             0           7              4
+Block 1    years    ago      our   fathers
+                                                                                P3 brought
+                                             1           1              4
+Block 2   brought                                                                             ···
+                                             2           3              1
+
+                                                                                P7   Four    score   and   seven
+
+
+
+
+             No pre-allocation                    External fragmentation?
+
+           KV cache grows
+  block by block with the sequence
+Key insight — Why does this design matter?
+              Logical KV blocks                            Block table                     Physical KV blocks (GPU DRAM)
+
+
+                                               L#      Physical block #   # filled         P1   years   ago     our   fathers
+Block 0    Four     score    and   seven
+
+                                               0              7              4
+Block 1    years    ago      our   fathers
+                                                                                           P3 brought
+                                               1              1              4
+Block 2   brought                                                                                        ···
+                                               2              3              1
+
+                                                                                           P7   Four    score   and   seven
+
+
+
+
+             No pre-allocation                       No external fragmentation
+
+           KV cache grows                    Any free physical block can be used for the
+  block by block with the sequence                       next needed block
+Key insight — Why does this design matter?
+              Logical KV blocks                            Block table                     Physical KV blocks (GPU DRAM)
+
+
+                                               L#      Physical block #   # filled         P1   years   ago     our    fathers
+Block 0    Four     score    and   seven
+
+                                               0              7              4
+Block 1    years    ago      our   fathers
+                                                                                           P3 brought
+                                               1              1              4
+Block 2   brought                                                                                        ···
+                                               2              3              1
+
+                                                                                           P7   Four    score   and    seven
+
+
+
+
+             No pre-allocation                       No external fragmentation
+                                                                                              Request A has a partially filled last block
+           KV cache grows                    Any free physical block can be used for the     → Request B uses a different physical block
+  block by block with the sequence                       next needed block
+Key insight — Why does this design matter?
+              Logical KV blocks                            Block table                     Physical KV blocks (GPU DRAM)
+
+
+                                               L#      Physical block #   # filled         P1   years    ago     our    fathers
+Block 0    Four     score    and   seven
+
+                                               0              7              4
+Block 1    years    ago      our   fathers
+                                                                                           P3 brought
+                                               1              1              4
+Block 2   brought                                                                                         ···
+                                               2              3              1
+
+                                                                                           P7   Four    score    and    seven
+
+
+
+
+             No pre-allocation                       No external fragmentation                          Internal fragmentation?
+
+           KV cache grows                    Any free physical block can be used for the
+  block by block with the sequence                       next needed block
+Key insight — Why does this design matter?
+              Logical KV blocks                            Block table                     Physical KV blocks (GPU DRAM)
+
+
+                                               L#      Physical block #   # filled         P1   years    ago     our    fathers
+Block 0    Four     score    and   seven
+
+                                               0              7              4
+Block 1    years    ago      our   fathers
+                                                                                           P3 brought
+                                               1              1              4
+Block 2   brought                                                                                        ···
+                                               2              3              1
+
+                                                                                           P7   Four    score    and     seven
+
+
+
+
+             No pre-allocation                       No external fragmentation                             Waste ≤ 1 block
+
+           KV cache grows                    Any free physical block can be used for the     Fill left-to-right; allocate a new block only
+  block by block with the sequence                       next needed block                              when previous one is full
+Parallel Sampling
+
+                               Parallel Sampling
+
+
+                 One input prompt            Multiple outputs
+
+
+                               Fixed allocation waste
+
+
+          Can the same design avoid duplication when one prompt
+                       produces multiple outputs?
+   Parallel Sampling
+
+
+                  Sequence A                                 Physical KV blocks                                              Sequence B
+                  Logical KV blocks                                                                                          Logical KV blocks
+                                                B0 brought
+Block 0   Four      score    and      seven                                                                Block 0   Four      score    and      seven
+                                                                                            Ref count: 2
+                                                B1   years       ago     our      mothers
+
+Block 1   years      ago     our      fathers                                                              Block 1   years      ago     our      fathers
+                                                B2 brought
+
+
+                                                B3 brought
+
+
+                                                                  ···
+
+
+                                                B7   Four        score   and       seven    Ref count: 2
+   Parallel Sampling
+                                                       Physical KV blocks
+
+
+                  Sequence A                                                                                                Sequence B
+                  Logical KV blocks                                                                                         Logical KV blocks
+                                                B0 brought
+Block 0   Four      score    and      seven                                                               Block 0   Four      score    and      seven
+                                                                                       Ref count: 2 🡪 1
+                                                B1   years    ago    our     mothers
+                                                                            mothers
+
+Block 1   years      ago     our      fathers                                                             Block 1   years      ago     our      mothers
+                                                                                                                                                fathers
+                                                B2 Copy-on-write
+                                                    brought
+
+
+
+                                                B3   years    ago    our     fathers
+
+
+                                                              ···
+
+
+                                                B7   Four    score   and      seven     Ref count: 2
+Swapping and Recomputation
+Distributed Execution
+Evaluation
+                       Datasets
+Output and input length distributions on ShareGPU and Alpaca datasets
+Baselines and Server Conﬁgurations
+1.    FasterTransformer: Highly optimized
+      transformer kernels from Nvidia. Authors
+      added ﬁxed batch size request-level
+      scheduling.
+
+Iteration-Level Scheduling:
+  2. Orca (Oracle): Allocates exactly enough
+      memory for output length
+  3. Orca (Pow2): Over-reserves memory by at
+      most 2x
+  4. Orca (Max): Reserves memory for the max
+      possible memory up to the sequence length
+
+
+     How could vLLM outperform Orca (Oracle) if Orca (Oracle) perfectly allocates the right
+                                  amount of memory?
+Why do we see the sharp upward trend in token latency as request rate increases?
+                                Batch Sizes
+
+
+
+
+Average number of batched requests when serving OPT-13B for the ShareGPT (2 reqs/s) and Alpaca (30
+                                         reqs/s) traces
+KV-Cache Page Reuse
+Paged Attention Kernel Benchmark
+
+
+
+
+20–26% higher attention kernel latency due to paging compared to FasterTransformer (FT)
+Ablation Study: Block Size
+
+
+
+
+Why might very small or very large block sizes reduce performance?
+Recomputation/Swap vs. Block Size
+
+
+
+
+       Overhead                                End to End Performance
+
+
+    Where do we see more overhead with smaller block sizes? Why?
+Thank you!
+

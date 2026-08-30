@@ -1,0 +1,504 @@
+LLM Inference Lectures
+     Part 1: GPU
+    (Harvard CS265 – DATA/AI Systems LAB)
+
+
+
+
+          Milad Rezaei Hajidehi
+        (milad@seas.harvard.edu)
+Inference: Descent Through Abstraction
+
+
+
+
+                              Model is a blackbox.
+          Many details abstracted away (tokenization, loading weights)
+Inference: Descent Through Abstraction
+
+
+
+
+                 Neural Operators with details exposed;
+             operators, tensors, and control flow are explicit.
+Inference: Descent Through Abstraction
+
+                           Torch Dispatch
+                               ATen
+
+
+
+
+                       Canonical Math Operators;
+            Choosing backend implementations and parameters.
+Inference: Descent Through Abstraction
+
+                           Torch Dispatch         cuDNN
+                               ATen               cuBLAS
+                                              Custom Kernels
+
+
+
+
+                Vendor Libraries Highly Optimized GEMMs
+           Custom GPU codes for even more optimized execution.
+Inference: Descent Through Abstraction
+
+                      Torch Dispatch        cuDNN             PTX
+                          ATen              cuBLAS         HW Runtime
+                                        Custom Kernels   (memory, caches,
+                                                              SMs)
+
+
+
+
+                      All physical works!
+               Data-Movement & Actual Compute!
+This Session: GPU/Performance
+✓ GPU Structure, Compute/Kernels Workflow.
+✓ Performance Considerations, Design Decisions.          PTX
+                                                      HW Runtime
+✓ Self-Designing Kernels.                           (memory, caches,
+                                                         SMs)
+
+
+
+   What happens in GPU when you run a model?
+   Why increasing batch-size improve performance?
+   What factors/metrics yield GPU performance?
+   Why writing ''good" kernel is hard?
+             It's all About Performance!
+
+               = Physical Operations
+
+= Compute Always Active ≈ Data-Movement Is Optimized
+LLM Operators
+
+                                           Matrix Mult.
+                                         (QKV, Att. Score,
+                                        MLP, Output Proj.)
+
+
+
+
+    +   +   +                                Reduce
+                                           (RMSNorm,
+                                            Softmax)
+
+
+
+
+                And some piecewise operators...
+    GPU Programming Model
+Single Instruction Multiple Thread
+
+
+
+
+   GPU Programming is Easy if You Don't Care About Performance
+   – GPU Holy Book, Chapter 1
+        Kernels & GPU Workflow – Add Two Vectors
+                                                  Cores   Registers
+ RAM
+                                                   ...
+
+    1   3   7   6              Kernel                                    1       2
+                               CUDA
+                              Program                                        1         3
+    8   1   0   2
+                                                                             8         1
+                                                                         3       4
+                                                                             7         6
+                     PCIe
+GPU Memory          64 GB/s                                                  0         2
+  (HBM)
+
+   1    3   7   6
+
+
+   8    1   0   2       9 4 0 8
+                                        ~2 TB/s
+
+                                                          Instructions
+                                                   ...                       Kernel CUDA Program
+        What may Become Bottleneck Here?
+        Kernels & GPU Workflow – Add Two Vectors
+                                                  Cores   Registers
+ RAM
+                                                   ...
+
+    1   3   7   6              Kernel                                    1       2
+                               CUDA
+                              Program                                        1         3
+    8   1   0   2
+                                                                             8         1
+                                                                         3       4
+                                                                             7         6
+                     PCIe
+GPU Memory          64 GB/s                                                  0         2
+  (HBM)
+
+   1    3   7   6
+
+
+   8    1   0   2       9 4 0 8
+                                        ~2 TB/s
+
+                                                          Instructions
+                                                   ...                       Kernel CUDA Program
+                      CPU vs. GPU
+             It's all About Circuit Area!
+
+
+
+
+      Large Control
+Out-of-Order + Speculation          Many Cores/ALU
+       Large Caches               Large Register Files
+      Wide Pipelines                Simple Control
+  Big Instruction Cache           Shared Instructions
+    Independent Cores            Very Fast Interconnect
+GPU Map: Hierarchy
+• Managing Massive Parallelism is Hard.
+
+
+• Memory and Compute divided into a
+  Hierarchy.
+
+
+• GPU -> Stream Multi-Processor ->
+  Quadrant -> Cores
+
+
+• Various memory and caches in each level.
+ GPU Map: Compute Units
+  Logical                                      Physical
+
+Threads:    Programming   Unit. Per         CUDA Core: General Purpose ALU. ~128 Per SM.
+                Block.
+                                            Tensor Core: Special units for MatMul. ~4 Per SM.
+Block/CTA: Group of threads, can
+have synchronization, always on             SM: ~ 100 per GPU. An independent collection of
+same SM, can share a shared-                cores/registers/memory.    Does    scheduling,
+memory.                                                       pipelining.
+
+Grid: A kernel specified by number          WARP: Group of 32 Threads always scheduled together
+of blocks and threads.                      and have their own Program Counter.
+
+
+
+
+                            Warp Divergence: Threads in same warp should have same control
+                            flow. Otherwise it Causes Idle Cores and Reduce Utilization.
+GPU Map: Memory Units
+                                      1 Cycle
+                     Registers      ~ 100 TB/s
+                    64K per SM
+
+                                            30 Cycle
+                      L1 Cache –            ~ 30 TB/s
+                Prog. Shared Memory
+                   256 KB per SM
+
+
+                     L2 Cache                      200 Cycle
+                  50 MB – Per GPU                   ~ 12 TB/s
+
+                                                          500 Cycle
+                HBM (GPU Memory)
+                                                           ~ 3 TB/s
+                 80GB - Per GPU
+Latency of a Kernel
+
+                             Tricky Part
+
+
+                 Compute   Data Movement     Output -> HBM
+        Launch
+                  Cycles   HBM -> Register
+ Push/Pull Kernels:
+ Bind threads to Input or Output.
+
+
+
+ Number of Blocks & Threads:
+ shape & hardware sensitive.
+
+
+
+
+Let's See how we can improve this!                 1   2   3
+                                     1 2 3 4                   1   2   3
+                                     5 6 7 8       4   5   6   4   5   6
+                                     9 .   .   .   7   8   .   .   .   .
+                                                   .   .   .
+Occupancy – Zero-Latency Context Switch
+Ultimate Dream = Best Throughput = Compute Cores Always Active
+
+
+
+Impossible! Due to Memory Reads.
+
+ Compute             Data Access          Compute
+           Compute             Data Access            Compute
+                       Compute             Data Access            Compute
+                                  Compute              Data Access          Compute
+
+
+
+                       What to do with Intermediate State?
+  Occupancy – Zero-Latency Context Switch
+  Compute              Data Access          Compute
+             Compute             Data Access            Compute
+                         Compute             Data Access            Compute
+                                    Compute              Data Access          Compute
+
+What to do with Intermediate data?
+
+
+                         That is why we have large register files!
+                -> Zero-Latency Context Switch, Storing State in Registers
+
+
+We have to oversubscribe GPU! How much?
+
+64 Active Warp is Optimal. But we limited by Registers!
+Occupancy = active warps on an SM / maximum possible warps on that SM
+ Arithmetic Intensity
+
+Arithmetic Intensity: Classify Kernels to Memory- or Compute- Bound.
+
+
+For each Thread: Flops / (Byte Moved from HBM)
+
+
+
+Roofline Model:
+Peak performance changes for different intensities.
+
+
+Occupancy Mostly Helps Memory-Bound Kernels.
+ Arithmetic Intensity - Examples
+
+Add Kernel: 1 FLOPs for Adding / (2 Float Loads for Input + 1 Float Store for Output)
+                      1 / 12 = 0.083 !!!
+
+
+
+
+Matrix Mult. A=(n,k) B=(k,m):
+
+K loads from A, K loads from B, 1 Store. Each 4 Bytes.
+K Multiply, K-1 Adds.
+
+~ 1/4
+Why Batching Operators is Good for Performance?
+Batching
+Workload: Add/Dot Four Vectors with One Fixed Vector. Four Cores Available.
+
+
+
+
+4 Kernels                              1 Kernels                        1 Kernels
+
+               Batching can improve launch                        How to layout inputs?
+            overhead, intensity, occupancy, and                   How to bind threads?
+                 coarsening opportunity.                          How to set batch size?
+Improving Matmul Intensity - Coarsening
+
+
+
+
+                              Calculate Two Output per Thread!
+                              Improve Intensity,
+                              But Increase Registers per Thread!
+
+                              How many output per Threads?
+Improving Matmul Intensity - Tiling
+
+                   Threads Compute Tiles Together!
+
+                   Threads collaborate to bring data in shared memory!
+
+                   Compute the Accumulator Changes.
+
+                   What is Optimal Tile Size?
+                   Is Optimal Tile Size Square?
+      Memory Coalesce
+Optimal Layout for Data Access?
+                                  A[4×i+thread_id]    1 2 3 4 1 2 3 4 1 2 3 4 1 2 3 4
+
+
+   Global Memory Access:          A[4×thread_id+i]    1 1 1 1 2 2 2 2 3 3 3 3 4 4 4 4
+  Per Warps, Aligned 32byte
+chunks as a memory transaction
+
+    Neighbouring Threads
+ (warp) Should Read Neighbour
+      Memory at a Time!
+                                          Can be 4x to 32x better!
+
+                                       How to Layout Data/Matrices?
+                                          How to Bind Threads?
+   Vectorize Load
+   Vectorize Load:                                 1 1 1 1 2 2 2 2 3 3 3 3 4 4 4 4
+   GPU Allows Few Load in One Instruction.
+
+   Sometimes up to 50% better!
+
+Which One is better?
+
+
+
+
+                                                   More Registers,           Less Registers,
+          More Registers,
+                                                   Less Load/Store          More Load/Store
+    More Load/Store Instructions.
+                                                    Instructions.             Instructions.
+
+
+                            How Much We Should Vectorize?
+                            We usually need Coarse Threads to Have Vectorize Opportunity.
+                                   Less Control/Branch
+
+
+How to Optimize
+
+
+
+
+                  Vectorize Load
+                       Less Register Pressure!
+
+
+
+
+How to Optimize
+
+
+
+                  T2
+
+                  T1
+Why so Many People Invest/Work on
+         ML Compilers?
+                      It's All About Trade-Offs.
+
+                                                             Vectorization         Parallelization
+                                                             Coarse Factor
+                           Occupancy                                               Tile Size
+
+Latency       Throughput                                     Register Pressure
+                                    Arithmetic Intensity
+                                                                              Thread Binding
+                                                            Cache Policy
+                                       Memory Efficiency                         #Blocks
+                                                                      Matrix Layout
+                           Instruction Efficiency                                      Loop Tiling
+                                                           #Threads per Block
+                                                                              Reduction Strategy
+
+     End-To-End                      Performance                            Design
+       Metrics                        Parameters                           Decisions
+    Self-Designing Kernels
+                            Shape/Input
+                              Specific
+
+
+
+
+  Synthesize Kernel For     Hardware
+Target Latency/Throughput    Specific
+
+
+                                                            First Step To Self-Designing AI
+
+
+                             Hard !!!
+
+
+                                          Once You Find It, You Can Use It Forever!
+      Self-Designing Kernels
+
+
+   Representation: Designing Basis Set for Space of
+         Possible Kernels for an Operator.
+
+
+
+Cost Model: Predict/Measure Performance of a Kernel.
+
+
+
+    Search: Converge to Good Part of the Space.
+How to synthesize/superoptimize/design?
+
+            Navigate Space
+                        Register-level Data Movement
+
+                    Per Instruction: Float Behaviour, Cache
+                      Management Hints, Vectorization
+
+                     Special Instruction: New | Compiler
+                                    Faults
+
+
+CUDA                              PTX                                    SASS
+
+
+
+
+                       On Abstract Machine (JVM)                 Actual Physical Machine
+
+                          Forward Compatible                    Different per Model of GPU
+
+                              Exposed to us                    No Documentation for Recent
+                                                                     Architectures
+
+
+
+                                              What should be our Source/Target Language?
+                 Placement
+       Runtime   Scheduling
+                 Zero-latency Context Switch
+Nodes: An Implementation of Specific Operator
+
+    Edges: A Mutation/Change on Program
+
+      Goal: Reaching to Good Programs.
+Vectorize Load
+How to Represent Programs?
+  Sketch of Any Compiler/Synthesizer
+                       Input
+                 Program/Operator                     Params
+
+
+                                                               Cost-
+                                    DSL-Synthesizer
+                                                               Model
+
+
+                                                      Search
+Coarsen Target    DSL/Template
+  Program.
+
+
+                                       Target-
+                                     Compilation
+                                     (Synthesize)
+It Is Just the Beginning...
+There are many other things to learn about GPUs:
+
+• Syntax!!!
+
+• Many Tensor Core Optimizations
+
+• Multi-GPU Primitives                             Next Session: What are our LLM
+                                                   workload/operators that use GPU...
+• Fusion (we discuss it next lecture)
+
+• PTX Optimizations/Tricks
+
+And...
+

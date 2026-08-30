@@ -1,0 +1,322 @@
+LLM Fine-Tuning
+Part 1
+
+
+
+
+Constantine (Kostas) Kopsinis, Qitong Wang, Stratos Idreos
+kkopsinis@g.harvard.edu
+                                           What is supervised learning?
+          What is an LLM?
+
+                                What is pre-training?
+What is an agent?
+                                                          What is tuning?
+                    LLM Fine-Tuning
+              What is post-training?          What is ne-tuning?
+
+                     I am an                    I am an
+                       LLM!                      Agent!
+     fi
+                         LLM Fine-Tuner
+               The vision for a self-designing system
+
+    Cost
+
+
+               Dataset                               Algorithm
+
+
+    Time
+
+
+                LLM
+                                                   Implementation
+
+  Hardware
+
+
+
+               Input                                    Output
+
+Requirements
+    LLM
+Fine-Tuning
+
+
+
+     4
+Architecture
+Task/Dataset
+    Task/Dataset
+
+
+Domain        Behavior
+           Domain
+                           LLM1
+                    App1
+
+
+Base LLM
+
+
+                    App2   LLM2
+
+
+
+
+                    App3
+
+                           LLM3
+           Domain
+                                 LLM1
+                    Math
+
+
+Base LLM
+
+
+                    Code         LLM2
+
+
+
+
+               Legal Documents
+
+                                 LLM3
+                                   Behavior
+                                Instruction Tuning
+prompt:
+Can you explain what a neural network is in simple terms?
+
+
+
+
+                Base LLM                                Instruction Tuned LLM
+
+
+
+
+  output:                               output:
+  I have a vague idea but I’ve yet to   A neural network is a system of connected units
+  completely understand it.             that learn patterns from examples,
+                                        similar to how the brain processes information.
+                                   Behavior
+                                Instruction Tuning
+prompt:
+                                                              !     Both models understand English.
+                                                                     Only one of them is trying to do
+PROMPT: Rewrite the sentence below as a polite email                        what we asked.
+request. Keep it to one sentence, under 20 words.
+“Send me the assignment deadline.”
+ANSWER:
+
+                 Base LLM                              Instruction Tuned LLM
+
+
+
+
+output:                                    output:
+ Hi, I was wondering if you could send     Hi, could you please let me know the
+ me the assignment deadline when you       assignment deadline?
+ have a chance.
+Single Turn   User              LLM                       User
+                     prompt                      output
+
+
+
+
+Multi Turn    User             LLM                        User                 LLM                    User
+                     prompt                      output            prompt                    output
+
+
+
+
+  Agent       User              LLM                       LLM                  LLM                    User
+                                       thought
+                     prompt                                                                  output
+
+
+
+
+                              action                                           observation
+
+
+
+
+                                           Environment           Environment
+Learning Algorithm
+        Prob
+
+
+
+LLM
+                 Observation
+
+
+
+
+      LEARNING
+
+
+
+
+                               Dataset
+
+
+
+       Update
+               Supervised Learning                                          Reinforcement Learning
+
+
+
+                       distance                                                       reward
+Objective ?                                    Learning Paradigms
+                      minimization                                                  maximization
+
+
+
+                  Labels from…                                                 Reward from…
+
+  internal                                                                                             human
+structure of                             external            environment
+                                                                                                     preferences
+    data                               annotations
+
+
+
+
+                                 Supervised                         Reinforcement         Reinforcement Learning
+    Self-Supervised
+                                 Fine-Tuning                         Fine-Tuning           with Human Feedback
+      Fine-Tuning                                                                                 (RLHF)
+                                    (SFT)                               (RFT)
+Supervised Learning
+                      VS   Reinforcement Learning
+                                                    ?
+                Supervised Learning                                            Reinforcement Learning
+
+
+
+                       distance                                                          reward
+Objective ?                                       Learning Paradigms
+                      minimization                                                     maximization
+
+
+
+                     Labels from…                                                 Reward from…
+
+  internal                                                                                                human
+structure of                                external            environment
+                                                                                                        preferences
+    data                                  annotations
+
+
+
+
+                                    Supervised                         Reinforcement         Reinforcement Learning
+    Self-Supervised
+                                    Fine-Tuning                         Fine-Tuning           with Human Feedback
+      Fine-Tuning                                                                                    (RLHF)
+                                       (SFT)                               (RFT)
+
+      pre-training
+  Self-Supervised
+    Fine-Tuning
+
+
+                                                     Decoder Architecture
+Causal Language Modeling
+(predict next token left→right)
+
+   Input:           CS165         is     an        awesome       class
+
+   Label:               is        an   awesome       class       EOS
+
+                                                     Encoder Architecture
+Masked Language Modeling
+
+    Input:           CS165        is     an        awesome       class
+
+    Label:                                an
+
+
+
+
+                                                 pre-training
+  Self-Supervised                                                                        Books
+    Fine-Tuning                                                             Web Pages
+
+                                                                                        Data     Code
+                                                     Decoder Architecture
+Causal Language Modeling                                                    Papers
+(predict next token left→right)
+
+   Input:           CS165         is     an        awesome       class
+
+   Label:               is        an   awesome       class       EOS
+
+
+
+
+                                                 pre-training
+                                                   Likelihood
+ Self-Supervised
+   Fine-Tuning
+                                                    p(is, an, …, EOS)
+                                                     = p(x1, x2, …, xN )
+ Input:            Decode:          Label:
+                                                             N
+
+                                                         ∏
+                                                     =           p(xi ∣ x1, …, xi−1)
+ CS165                       VS          is
+                                                         i=1
+   is                        VS      an
+                                                  Cross-Entropy
+  an                         VS   awesome
+                                                                      N
+awesome                      VS     class                1
+                                                         N∑
+                                                     ℒ=−       log p(xi)
+ class                       VS     EOS                    i=1
+
+
+                                                  Perplexity
+                         loss function                                       N
+
+                                                                  ( N∑               )
+                                                         ℒ           1
+                                                     e       = exp −       log p(xi)
+                                                                       i=1
+                                   pre-training
+                Supervised Learning                                            Reinforcement Learning
+
+
+
+                       distance                                                          reward
+Objective ?                                       Learning Paradigms
+                      minimization                                                     maximization
+
+
+
+                     Labels from…                                                 Reward from…
+
+  internal                                                                                                human
+structure of                                external            environment
+                                                                                                        preferences
+    data                                  annotations
+
+
+
+
+                                    Supervised                         Reinforcement         Reinforcement Learning
+    Self-Supervised
+                                    Fine-Tuning                         Fine-Tuning           with Human Feedback
+      Fine-Tuning                                                                                    (RLHF)
+                                       (SFT)                               (RFT)
+
+      pre-training
+    LLM
+Fine-Tuning
+

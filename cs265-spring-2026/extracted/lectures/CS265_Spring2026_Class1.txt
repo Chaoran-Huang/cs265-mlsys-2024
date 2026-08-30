@@ -1,0 +1,1063 @@
+Stratos Idreos
+Scope: End-to-end AI systems
+Topics: LLMs, Context, Agents, RAG
+Inspiration: Research + Industry
+Technical: Storage/Computation/Self-designing
+Projects:
+       Systems (LLM core, or design)
+       Research (LLM compiler, RAG, Image,
+       Fine-tuning, Context Management)
+       Research is open to 165 & systems
+       students but eventually open to all
+Timeline:
+       5 weeks of introduction
+       then reading research papers
+Goals: Develop to an “AI systems person”
+Info: http://daslab.seas.harvard.edu/classes/cs265/
+A TYPICAL BIG DATA TASK
+image analysis: e.g., detect the number of horses
+A TYPICAL BIG DATA TASK
+image analysis: e.g., detect the number of horses
+The core problem:
+The size and organization of the data
+Three steps in big data regardless of application
+steps involved in image processing for AI:
+
+
+
+
+STORE              MOVE             PROCESS
+Three steps in big data regardless of application
+steps involved in image processing for AI:
+
+
+
+
+STORE              MOVE             PROCESS
+
+         How fast we can move and process data
+         depends on the storage design decisions
+50-80% of end-to-end time is due to storage-related decisions
+50-80% of end-to-end time is due to storage-related decisions
+
+
+
+
+                                        cloud cost
+learning outcome
+Fundamentals of storage
+data structures, SQL, NoSQL, Agents, LLMs, RAG, Data Science, Image AI
+learning outcome
+Fundamentals of storage
+data structures, SQL, NoSQL, Agents, LLMs, RAG, Data Science, Image AI
+same set of principles across all elds (performance: design & implementation)
+                            fi
+learning outcome
+Fundamentals of storage
+data structures, SQL, NoSQL, Agents, LLMs, RAG, Data Science, Image AI
+same set of principles across all elds (performance: design & implementation)
+
+
+
+                   from algorithms to systems
+                            fi
+    This class helps with:
+software (systems) engineering jobs
+    joining data-driven startups
+        starting with research
+        This class helps with:
+    software (systems) engineering jobs
+        joining data-driven startups
+            starting with research
+
+
+
+      This class does not help with:
+              using systems
+it helps with designing and building systems
+                First ~5 weeks:
+
+Background on basic systems concepts (storage)
+ Intro into the concept of self-designing systems
+
+       Systems for: RAG, Image AI, LLMs
+             What is a data system?
+    A data system is an end-to-end software system that:
+manages storage, data movement, and provides access to data
+             What is a data system?
+    A data system is an end-to-end software system that:
+manages storage, data movement, and provides access to data
+A system is a complex
+set of components
+
+interacting in harmony
+depending on the context
+
+exposing as little as possible
+complexity to users
+declarative interface
+  ask ‘’what’’ you want
+
+
+
+
+ data* system
+
+ the system decides
+  “how” to best store
+   and access data
+declarative interface
+  ask ‘’what’’ you want
+
+
+
+
+ data* system
+
+ the system decides
+  “how” to best store
+   and access data
+
+
+
+
+why is this good
+ ~6 decades of research
+started with IBM, Microsoft, Oracle, Teradata,etc.
+         and a gazillion start-ups today
+
+
+
+        declarative interface
+            ask ‘’what’’ you want
+
+
+
+
+           data* system
+
+           the system decides
+            “how” to best store
+             and access data
+
+
+
+
+         why is this good
+1. For decades: data systems = SQL DBs
+  but with big data, the need for fast data
+  systems is drastically broader than SQL
+                                     broader than SQL
+
+
+store data X             get data with property Z
+
+
+
+                 data
+               systems
+                broader than SQL
+
+big data apps   ANA
+                    LYT
+                       IC   S
+    data
+  systems             AI
+                                 broader than SQL
+
+                 big data apps   ANA
+                                     LYT
+                                        IC   S
+                     data
+                   systems             AI
+
+
+New data systems to handle new requirements
+                                   broader than SQL
+
+
+
+
+TRANSACTIONS
+Deposit money to my bank account
+Transfer money from … to…
+                                     broader than SQL
+TRANSACTIONS
+Deposit money to my bank account
+Transfer money from … to…
+
+
+
+ANALYTICS
+How much do customers
+of X spent on average every month?
+                                                    broader than SQL
+TRANSACTIONS
+Deposit money to my bank account
+Transfer money from … to…
+
+
+
+ANALYTICS
+How much do customers
+of X spent on average every month?
+
+
+
+                    AI
+                    Is this transaction legal?
+                    Should we give a loan to customer X?
+                                   broader than SQL
+
+
+SOCIAL NETWORKS: REVIEWS/POSTS
+How many costumers on average
+leave a 4 star review or better?
+                                                broader than SQL
+
+
+SOCIAL NETWORKS: REVIEWS/POSTS
+How many costumers on average
+leave a 4 star review or better?
+
+                             AI
+                             Is this new review a legitimate one?
+                                                   broader than SQL
+
+
+SOCIAL NETWORKS: REVIEWS/POSTS
+How many costumers on average
+leave a 4 star review or better?
+
+                               AI
+                               Is this new review a legitimate one?
+
+
+
+                COMMUTING
+                Compute price for next Uber ride
+                                              broader than SQL
+
+
+
+
+       New data-driven applications
+data
+
+
+
+
+       New requirements
+                                        The need for
+       New user ows
+       New workloads                    data systems
+                                        grows with data
+                                 time
+        fl
+             new a
+                      pplica
+                                tions
+
+
+
+
+               continuous
+                  need
+                 for new
+            storage solutions
+more data
+
+
+                                              h /w
+                                        e w
+                                    n
+2. As data grows, having the right data system
+ for each application is increasingly more critical
+2. As data grows, having the right data system
+ for each application is increasingly more critical
+
+
+                      system architecture
+                      it starts with storage
+                                the right data system
+
+
+
+                          TE
+                      P U
+                    M
+speed
+
+                 CO
+
+
+
+
+                         E NT
+                  O V EM
+           TA   M
+        D A
+
+
+
+
+                        2026
+                                     the right data system
+
+
+
+                               TE
+                           P U
+                         M
+    speed
+
+                      CO
+
+
+
+
+                              E NT
+                       O V EM
+                TA   M
+             D A
+
+
+
+
+                             2026
+
+
+
+System architecture design gets more complex
+  with bigger data and new diverse hardware
+        ——HOW——
+INDEX
+         TO STORE
+DATA    ——DATA——
+ALGORITHMS
+  data structure decisions de ne
+  the algorithms that access data
+
+
+
+
+              INDEX
+
+              DATA
+  fi
+ALGORITHMS
+       rd e re d
+ u n o         [7,4,2,6,1,3,9,10,5,8]
+
+
+
+
+                    INDEX
+
+                     DATA
+ALGORITHMS
+       rd e re d
+ u n o         [7,4,2,6,1,3,9,10,5,8]
+
+
+
+
+                    INDEX
+
+                     DATA
+ALGORITHMS
+       rd e re d
+ u n o         [7,4,2,6,1,3,9,10,5,8]
+
+          re d
+     rd e    [1,2,3,4,5,6,7,8,9,10]
+   o
+
+
+                    INDEX
+
+                     DATA
+ALGORITHMS
+   INDEX
+
+   DATA
+SYSTEMS
+ ALGORITHMS
+    INDEX
+
+    DATA
+                 C O   M PU T E
+                                      DATA
+speed
+
+
+
+
+                                   STRUCTURES
+                                     DEFINE
+                            N T
+                    V E  ME
+                M O
+          ATA
+        D
+
+
+
+
+                        2026
+                                  PERFORMANCE
+                            T E
+                         PU
+                   O   M
+                 C                register = this room
+speed
+
+
+
+
+                                   caches = this city
+                                  memory = nearby city
+                            N T
+                    V E  ME           disk = Pluto
+                M O
+          ATA
+        D
+
+                                  Jim Gray, Turing Award 1998
+
+
+                        2026
+                                  cache miss: looking for something
+               CPU
+
+
+
+faster
+                                      which is not in the cache
+
+
+             registers                                                 cpu
+                                                         speed
+                                    ~1ns
+          on chip cache
+                                                                       mem
+                                   ~10ns
+          on board cache   SRAM                                        time
+                                               memory wall
+             memory        DRAM   ~100ns
+
+               disk
+cheaper
+
+
+
+
+                                  memory miss: looking for something
+                                       which is not in memory
+                                  cache miss: looking for something
+               CPU
+
+
+
+faster
+                                      which is not in the cache
+
+
+             registers                                                 cpu
+                                                         speed
+                                    ~1ns
+          on chip cache
+                                                                       mem
+                                   ~10ns
+          on board cache   SRAM                                        time
+                                               memory wall
+             memory        DRAM   ~100ns
+
+               disk
+cheaper
+
+
+
+
+                                  memory miss: looking for something
+                                       which is not in memory
+                                                                         CPU
+                           need to only read x…
+                       but have to read all of page 1                  registers
+data value x                                                        on chip cache
+
+                                                                    on board cache
+
+
+
+
+                                                        data move
+                                             …
+               page1    page2      page3                               memory
+                                                                         disk
+                                   query x<5
+
+
+
+
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                                            40 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+                                                            40 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+                                                             40 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+
+
+
+                                    28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                              80 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               423
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6       …
+
+                                 page size: 5x8 bytes
+                                                              120 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               423
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+
+
+
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions               40 bytes
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions               40 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                40 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+
+
+
+                                    28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                  80 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42 3
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6        …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                  120 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42 3
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6       …
+
+                                 page size: 5x8 bytes
+when does it make sense to have an oracle
+      how can we minimize the cost
+
+ e.g., query x<5
+ 5 10 6 4 12       28976     7 11 3 9 6     …
+algorithm/system design = not just computation
+algorithm/system design = not just computation
+
+
+
+ Is there maybe a perfect system? Nope…
+basic CS265 logistics
+learning outcome
+Fundamentals of storage
+data structures, SQL, NoSQL, Agents, LLMs, RAG, Data Science, Image AI
+learning outcome
+Fundamentals of storage
+data structures, SQL, NoSQL, Agents, LLMs, RAG, Data Science, Image AI
+
+
+
+
+Self-designing systems
+Automated system design: cloud cost, hardware, data & app requirements
+      rst ~5 weeks: Stratos & TFs
+     Basic background
+     Self-designing systems
+     LLM systems
+     Image AI systems
+     Research thinking
+fi
+      rst ~5 weeks: Stratos & TFs
+     Basic background
+     Self-designing systems
+     LLM systems
+     Image AI systems
+     Research thinking
+
+
+     afterwards:
+     Students present research papers
+     One paper per class (ML systems)
+     In-class research/systems discussion
+     Research reviews
+     Research/systems projects
+fi
+                         Each student:
+                         In-class discussions/1 presentation
+
+                          review and slides should focus on
+
+                                    what is the problem
+                                    why is it important
+                                       why is it hard
+                           why existing solutions do not work
+                         what is the core intuition for the solution
+                                   solution step by step
+                            does the paper prove its claims
+                          exact setup of analysis/experiments
+                          are there any gaps in the logic/proof
+                                    possible next steps
+
+                          * follow a few citations to gain more background
+Recent Research Papers
+                                Each student:
+                                In-class discussions/1 presentation
+learn to judge constructively
+                                 review and slides should focus on
+
+                                           what is the problem
+                                           why is it important
+                                              why is it hard
+      learn to present            why existing solutions do not work
+                                what is the core intuition for the solution
+                                          solution step by step
+                                   does the paper prove its claims
+                                 exact setup of analysis/experiments
+                                 are there any gaps in the logic/proof
+                                           possible next steps
+  learn to prepare slides
+                                 * follow a few citations to gain more background
+ Recent Research Papers
+In class discussions
+is a critical component
+and learning outcome
+
+
+Think creatively
+Fail quickly
+Incrementally solve
+
+DailyOH/labs in person,
+Sat/Sun remote Labs
+Friday remote OH
+In class discussions
+is a critical component
+and learning outcome
+
+
+Think creatively
+Fail quickly
+Incrementally solve
+
+DailyOH/labs in person,
+Sat/Sun remote Labs
+Friday remote OH
+
+
+        There is no such thing as a wrong question/answer!!!!
+semester project: due in the end of semester + a midway check in (end of March,10%)
+
+
+         systems project                      research project (publish)
+semester project: due in the end of semester + a midway check in (end of March,10%)
+
+
+         systems project                      research project (publish)
+
+
+        individual project
+        LLMs, in c/c++
+        MLsys, in pytorch
+semester project: due in the end of semester + a midway check in (end of March,10%)
+
+
+         systems project                      research project (publish)
+
+                                                   groups of max three
+        individual project                        Adaptivity/Performance
+        LLMs, in c/c++                               Focus this year:
+        MLsys, in pytorch               LLM inference & Fine-tuning, RAG, Image AI
+semester project: due in the end of semester + a midway check in (end of March,10%)
+
+
+         systems project                      research project (publish)
+
+                                                   groups of max three
+        individual project                        Adaptivity/Performance
+        LLMs, in c/c++                               Focus this year:
+        MLsys, in pytorch               LLM inference & Fine-tuning, RAG, Image AI
+                       ACM Special Interest Group In Data Management (SIGMOD)
+                                   Undergrad Research Competition
+
+
+
+
+      rst prize in 2016, 2017,
+     2018, 2019, 2020, 2022
+     Adaptive Denormalization
+     Evolving Trees
+     Splaying LSM-Trees
+     Adaptive NoSQL
+     Adaptive Filters
+     Distributed Deep Learning
+fi
+       forum
+
+
+
+
+        all announcements & discussions
+                   as of week 2
+link on class website - check out usage guidelines
+       forum
+
+
+
+
+                                                     classes are recorded
+                                                       (links on canvas)
+
+        all announcements & discussions
+                   as of week 2
+link on class website - check out usage guidelines
+       forum
+
+
+
+
+                                                     classes are recorded
+                                                       (links on canvas)
+
+        all announcements & discussions
+                   as of week 2
+link on class website - check out usage guidelines
+
+
+                    Project: 45%
+                    Midway Check-in:10%
+                    Discussion: 30%
+                    Presentation: 15%
+       forum
+
+
+
+
+                                                                                        classes are recorded
+                                                                                          (links on canvas)
+
+        all announcements & discussions
+                   as of week 2
+link on class website - check out usage guidelines
+
+
+                    Project: 45%
+                    Midway Check-in:10%
+                    Discussion: 30%
+                    Presentation: 15%
+
+
+
+
+                                                     NO LAPTOP/PHONE POLICY
+                                                     class is based on participation!
+Teaching Fellows
+Prerequisites
+knowledge of algorithms, data structures, hardware, systems
+
+Research track:
+open to CS165 students
+after discussion also CS161 and systems PhDs
+
+Systems track allows taking the class without all prerequisites (but at least CS61)
+            Check out: syllabus,
+project 0, systems projects, online sections
+
+http://daslab.seas.harvard.edu/classes/cs265/
+Timeline:
+Research papers: 3rd week
+New Systems Project: 3rd week
+Research projects: 4th week
+
+Plan to start systems/research project end of Feb
+
+Stratos’ OH start today - Labs to start on Week 3
+Stratos Idreos
+

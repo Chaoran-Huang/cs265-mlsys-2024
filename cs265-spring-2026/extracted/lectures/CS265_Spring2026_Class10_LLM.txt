@@ -1,0 +1,462 @@
+LLM Inference Lectures
+ Part 2: LLM Operators
+    (Harvard CS265 – DATA/AI Systems LAB)
+
+
+
+
+          Milad Rezaei Hajidehi
+        (milad@seas.harvard.edu)
+Overview of an LLM
+
+
+
+
+               s: number of tokens in our prompt.
+         d: dimension of vectors we use for embeddings.
+
+                 We Inspect All of Them!
+Tokenizer
+                                           Goal:
+                          Raw text -> Sequence of Discrete Tokens
+
+              "future belongs to" -> "future belongs to" -> [21733, 17623, 311]
+
+                                   Vocabulary (size: v):
+                                 List of all possible tokens.
+                              Determined at the training time.
+
+      Coarse vs. Fine
+     Grained Tokens?
+      future belongs to                          Smaller Sequence Length.
+      future belongs to
+      future belongs to                          Bigger Vocabulary Size. (Last Output Layer)
+
+                                                 Weaker Generalization.
+Byte-Pair Encoding
+                    Vocabulary Size (v) = Hyperparameter
+                     How to Construct Vocabulary Set?
+
+                      Start with Each Byte as a Token
+                Greedily Merge Tokens and Add a New Token
+                          Based on Frequencies.
+
+                                   be -> be
+
+
+
+      At Inference: Start with Bytes, Greedily Merge as Much as You Can.
+                           (based on merge-scores)
+
+                         128000 Tokens in LLAMA3.
+At Inference: Start with Characters(Bytes), Greedily Merge as Much as You Can.
+                           (based on merge-scores)
+
+                           128000 Tokens in LLAMA3.
+
+            b_e_l_o_n_g -> be_l_o_n_g -> be_lo_n_g -> be_lon_g -> be_long
+
+
+
+                                                                    <id,id> -> rank
+          id->token                     token->id
+                                                                     (frequency)
+
+    id         token              token      id               <id,id>       rank
+    1          a                  a          1                <1,2>         42
+    2          b                  aa         264              <1,3>         824
+    ...        ...                ...        ...              ...           ...
+    43700      long               long       43700            <43700,1>     9999
+    ...        ...                ...        ...              ...           ...
+Embedding Lookup
+                  Goal: Map Token IDs to Vectors with Semantic.
+
+
+                      Embeddings: A Lookup Table of (v×d)
+
+                        Afterward we have a (s×d) Tensor.
+
+
+
+   Where Should
+     We Store                                            GPU!!
+    Embedding                              Avoid large tensor data-movement
+      Table?                              Easier Duplicate Token Management
+What We Have so Far...
+            d=4096
+
+   future
+
+  belongs            s=3
+
+    to
+             Our Goal: Best Next Token
+
+          d=4096                        Magical Tensor
+
+future                                     v=128000
+
+belongs             s=3
+
+  to                           Score of Each Token as Next Token!
+                               (Softmax for Having Probabilities)
+                Output Block: Finding Magical Tensor
+
+
+
+                                                 v
+                d
+                                                                                 v
+
+
+ s                                   d                             s
+
+
+                                                                          Last Tensor is
+                                                                         Magical Tensor!
+The <s,d> matrix after decoders
+                                  Learned Matrix in Output Block   Softmax give us Probabilities.
+                                     (Vocabulary Projection )
+        Decoding Algorithms: A Short Detour
+ Greedy Sampling: We always pick next token that has highest score/probability!
+
+                                  Is It Optimal?                                <t1>, 0.5
+
+                                                                    <t1>, 0.5
+                                                                                <t2>, 0.5
+Issue #1: Diversity of Answers.                    <input prompt>
+                                                                                <t3>, 0.9
+
+                                                                    <t2>, 0.4
+Issue #2: Locally Optimal != Globally Optimal
+                                                                                <t4>, 0.1
+
+
+                 Beam Search & Temperature are Solution To This.
+Last Missing Piece
+
+
+    Goal: Transform Initial Embedding ->
+  Contextual Representation for Output Block
+       Operators Inside Decoder:
+
+RMSNorm, QKV, KV-Cache, Attention, MLP
+          (90% of the Time)
+           x: Embedding Per Token, s Norms in Total
+
+Purpose: Normalize Layer Inputs, Faster Convergence, Stability
+
+
+         Requires A Reduction (sum) Kernel!
+
+
+                    +   +   +
+How to Calculate Sum of a Vector? (Threads are Independent!)
+
+
+                                                                                 Per Thread Sum
+                                                                                in Shared Memory
+                                                                            T_id    Color Sum
+                                                                            0               17
+ Step1: Each Thread                                                         1               29
+ Calculate Sum for its
+     Own Color                                                              2               14
+                                                                            4               11
+
+                                            Sync. Barrier
+    Second ½ of Threads Finish, First ½ Threads Merge With Second Half Values (0 with 2, 1 with 4)
+
+                                            Sync. Barrier
+
+      Second 1/4 of Threads Finish, First 1/4 Threads Merge With Second Half Values (0 with 1)
+                                                 …....
+              Original Goal of Decoder: Transforming Embeddings to be Contextual Information.
+
+
+                                      "motivated" -> 70%
+
+
+        "future belongs to self-"     "driving" -> 29%
+
+
+                                      "designing" -> 1%
+
+                                      "motivated" -> 5%
+
+
+"elon said future belongs to self-"   "driving" -> 95%
+                                                                       "motivated" -> 10%
+                                      "designing" -> 0%
+
+                              "stratos said future belongs to self-"   "driving" -> 0%
+
+                                                                       "designing" -> 90%
+               Input of Decoder: One embedding per token.
+
+Output of Decoder/Attention(H): One embedding per token. But transformed!
+                 based on context and previous tokens!
+
+
+
+
+                                             (K)ey: What kind of query
+                                                 would match me?
+         (Q)uery: What am I looking for
+              in previous tokens?                     K
+
+                         Q                                V
+
+                                                    (V)alue: What information
+                                          Token
+                                                       do I pass if selected?
+How much j can impact i?
+     (normalized)
+
+
+
+
+Embeddings Transformed.
+
+
+
+
+                           In LLAMA3, We use GQA rather than Vanilla-
+                           Transformer, which is slightly different.
+             We need QKV for all tokens!
+
+
+
+
+  After first decoder, all QKVs are affected by their
+                   previous tokens!
+
+
+
+
+                    KV-Cache:
+Cache previously computed K,V to avoid recomputing
+           them at every decoding step.
+
+  After QKV and Attention we have bunch of Matrix
+     Multiplication and elementwise operators.
+                         You Are Ready For The Project!
+
+       Step 0                    Step 1                 Step 2                   Step 3
+
+
+                                                                          Write your Controllers
+  Read CUDA Book           Finish Tokenizer      Write a good generic          (operators)
+ (selected chapters)                             Matrix Multiplication
+                                                        kernel.
+
+                           Write dumper.py
+ Understand LLAMA          and loader.cpp to
+     Operators.           transform weights.
+(Slides, Office Hours,          (mmap)           Write a Reduce kernel.
+Youtube, LLM, Torch
+        Codes)                                                              Write rest of easy
+                         Load embeddings and                                    kernels.
+                         prepare the input for
+                              first Kernel
+                             (RMSNorm)
+
+                                                  Test, Test, Test!
+                         You Are Ready For The Project!
+
+       Step 0                    Step 1                 Step 2                   Step 3
+
+
+                                                                          Write your Controllers
+  Read CUDA Book           Finish Tokenizer      Write a good generic          (operators)
+                                                 Matrix Multiplication
+ (selected chapters)       First Make it Work.          kernel.
+
+                     WriteThen    Optimizations:
+                           dumper.py
+Understand LLAMA
+      KV-Cache,
+   Operators.    Fusing,   Performance Tuning, Quantization….
+                     and loader.cpp to
+                    transform weights.
+(Slides, Office Hours,         (mmap)            Write a Reduce kernel.
+Youtube, LLM, Torch
+        Codes)                                                              Write rest of easy
+                         Load embeddings and                                    kernels.
+                         prepare the input for
+                              first Kernel
+                             (RMSNorm)
+
+                                                  Test, Test, Test!
+      Challenges & Bottlenecks.
+     What Makes Inference Hard?
+
+✓Opportunities For Problem-Solving!
+                   Performance Metrics in Inference
+
+
+Phase 1 – Prefill: Reading prompt – Compute QKVs for each token – Find the first "next token"
+Metric -> Time-to-First-Token (TTFT) = T_queue + T_prefill
+Compute Bound!
+
+
+
+Phase2 – Decode: Predict next tokens one by one – Read QKV from cache.
+Metric -> Tokens Decoded per Second (token/s) or Latency = TTFT + Full Decode Latency
+Memory Bound!
+             Highly variable sequence lengths
+                     (prompt, answer)
+
+
+
+
+                                           Prompt Tokens    Output Tokens
+
+Inference                                       10               300
+
+Challenges                                      170              289
+                                                16                29
+                                                290               46
+
+
+                                            Why It Cause a Problem?
+             Highly variable sequence lengths
+                     (prompt, answer)
+                                                     For a 500 token request:
+                                                500 * 32 * 2 * 4096 * 4b ~= 500MB!!
+
+             Memory is Under Pressure.
+
+Inference                                                 Model Weights
+Challenges                                                  ~(20GB)
+
+
+                                                          GPU Memory
+             Highly variable sequence lengths
+                     (prompt, answer)
+
+
+
+
+             Memory is Under Pressure.
+
+Inference
+Challenges                                         Why It Cause a Problem?
+             Too Many Operators/Kernel Launches!
+                       Highly variable sequence lengths
+                               (prompt, answer)
+
+
+
+
+                       Memory is Under Pressure.
+
+Inference
+Challenges
+                       Too Many Operators/Kernel Launches!
+
+
+
+
+                       Bursty, Irregular, On/Off Workload
+
+
+             And of Course Everything We Said About Kernel Tuning.
+                  Every
+                     HighlyPaper      We Read:
+                            variable sequence lengths
+
+             A Solution to(prompt,
+                              These   answer)
+                                         Challenges.
+             General or Application-Specific
+                        Memory is Under Pressure.
+
+Inference
+Challenges
+                        Too Many Operators/Kernel Launches!
+
+
+
+
+                         Bursty, Irregular, On/Off Workload
+
+
+              And of Course Everything We Said About Kernel Tuning.
+Problem: We launch many kernels for one inference.
+~25 kernel launch per decoder if done naively.
+
+Why We Care: GPU Underutilization.
+Low throughput due to frequent data movement.
+Problem: Many design-decisions and parameters for each kernel.
+
+Why We Care: Optimizing kernels independently is necessary for end-
+to-end optimization of LLM.
+Problem: Naive KV cache allocation wastes GPU memory.
+
+Why We Care: Lack of memory limit batch-size and hence throughput.
+Problem: Naive KV cache allocation wastes GPU memory.
+
+Why We Care: Lack of memory limit batch-size and hence throughput.
+
+
+
+               And Many More Papers....
+                           How to Assess
+                     LLM Inference Techniques?
+
+             Pretraining (Grouped Query Attention)                         Lossy
+
+
+
+Adaptation                                                   Fidelity
+             Fine-Tuning (Quantization Methods)
+ Overhead
+
+
+             No Overhead! (vLLM)                                           Lossless
+
+                                         Latency (mean)
+
+                                                                        Generality!
+                         What is         Throughput
+                        Sacrificed
+
+                                         p99, Tail-Latency
+                                 Quantization
+Using Less Bits for Weights, Activations, KV-Cache -> More Memory, More Batch Size, More Throughput
+
+
+
+
+                                                       Possible Problems:
+                                                       Overflow, Underflow, Low Precision
+
+
+                                                       Lossy, May Require Fine-tuning.
+                          Scheduling Requests in LLM
+
+
+Requests Queue:      2s     5s   10s
+(1 Req at a time)                                       P99, Throughput,
+                                                        Chicken-Egg Problem
+
+
+
+Original Order:     2s      5s   10s
+
+
+                                         Can Improve Mean Latency.
+                                         Loseless, Only Train the Magical Part!
+Re-order:           10s    5s    2s
+         Routing Requests in LLM Inference
+
+
+
+
+2s     5s      10s
+
+
+
+
+     Improve Everything but Lossy!
+

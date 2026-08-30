@@ -1,0 +1,1238 @@
+                                                         Mirage: A Multi-Level Superoptimizer for Tensor Programs
+
+                                                     Mengdi Wu    Xinhao Cheng                    Shengyu Liu†   Chunan Shi†   Jianan Ji
+                                                  Man Kit Ao  Praveen Velliengiri‡                 Xupeng Miao ♯  Oded Padon ⋄    Zhihao Jia
+
+                                                                    Carnegie Mellon University   Peking University†
+                                                 Pennsylvania State University‡   Purdue University♯    Weizmann Institute of Science⋄
+arXiv:2405.05751v3 [cs.LG] 6 Jun 2025
+
+
+
+
+                                                                Abstract                                   The first category of work, including Halide [35],
+                                        We introduce Mirage, the first multi-level superoptimizer       TVM [13], and Ansor [51], is motivated by the idea of al-
+                                        for tensor programs. A key idea in Mirage is µGraphs, a         gorithm and schedule separation1 introduced in Halide and
+                                        uniform representation of tensor programs at the kernel,        optimizes the schedule of a tensor program while fixing the al-
+                                        thread block, and thread levels of the GPU compute hier-        gorithm. For a given algorithm, these optimizers automatically
+                                        archy. µGraphs enable Mirage to discover novel optimiza-        generate performant kernels by searching for possible strate-
+                                        tions that combine algebraic transformations, schedule trans-   gies to execute the kernel on the target hardware. However,
+                                        formations, and generation of new custom kernels. To nav-       due to the linear algebra nature of DNNs, a tensor program
+                                        igate the large search space, Mirage introduces a pruning       can be represented by a wide spectrum of mathematically
+                                        technique based on abstraction that significantly reduces       equivalent algorithms. Existing schedule-based optimizers
+                                        the search space and provides a certain optimality guaran-      only consider kernels whose algorithms are manually speci-
+                                        tee. To ensure that the optimized µGraph is equivalent to       fied by users, resulting in missed optimization opportunities.
+                                        the input program, Mirage introduces a probabilistic equiva-       The second category of work, including TASO, Grappler,
+                                        lence verification procedure with strong theoretical guaran-    Tensat, and PET, considers algebraic transformations, which
+                                        tees. Our evaluation shows that Mirage significantly outper-    exploit mathematical equivalence among different algorithms
+                                        forms existing approaches even for DNNs that are widely         for a tensor program [3, 25, 46, 48]. Examples of algebraic
+                                        used and heavily optimized. Mirage is publicly available at     transformations include (1) converting one linear algebra op-
+                                        https : //github.com/mirage-project/mirage.                     erator into another, such as transforming a convolution to a
+                                                                                                        matrix multiplication; (2) fusing multiple operators to reduce
+                                                                                                        memory access and kernel overhead; and (3) reorganizing op-
+                                        1   Introduction
+                                                                                                        erators based on commutativity, associativity, and distributiv-
+                                        Enabling high-performance execution of deep neural net-         ity. These optimizers perform algebraic transformations at the
+                                        works (DNNs) on GPUs is critical for modern ML applica-         algorithm level and require programmers to manually specify
+                                        tions. Today’s DNN frameworks generally specify DNN com-        the set of available operators and their implementations. They
+                                        putation using tensor programs, which are directed acyclic      are thus limited by the performance of the provided kernels.
+                                        graphs whose nodes and edges represent tensor algebra              All existing automated optimization approaches, from both
+                                        operators (e.g., matrix multiplication) and tensors (i.e., n-   categories, still require programmers to manually specify a
+                                        dimensional arrays) shared between operators.                   set of kernels (each defined by a tensor function), and then
+                                           To optimize an input tensor program, existing frameworks     explore the search space of algebraic or schedule transforma-
+                                        (e.g., PyTorch [34] and TensorFlow [9]) use manually de-        tions. However, some advanced performance optimizations
+                                        signed rules to map the tensor program to expert-written GPU    require coordinated transformations across the kernel, thread
+                                        kernels. These approaches generally require extensive engi-     block, and thread levels of the GPU compute hierarchy, and in-
+                                        neering efforts to design and implement optimization rules,     volve introducing completely new kernel computations (e.g.,
+                                        and they may miss certain optimization opportunities. To ad-    a custom kernel that decomposes standard kernels and fuses
+                                        dress these challenges, recent work has introduced automated    only certain computations). Such optimizations are not in-
+                                        approaches that optimize tensor programs by searching over a    cluded in the search space of existing automated methods and
+                                        comprehensive space of program transformations and apply-       must still be implemented manually.
+                                        ing them based on their performance on target GPUs. These          1 In the schedule optimization literature, an algorithm describes what to
+
+                                        approaches generally fall into two categories.                  compute in a kernel and a schedule specifies how to compute the kernel.
+                        Input Tensor Program                      izations), and limited exponentiation (useful for activations).
+                                  Program Partitioning            Partitioning a tensor program into L AX subprograms reduces
+           Lax Subprogram       … Lax Subprogram                  the optimization search space while preserving most opti-
+                                                                  mization opportunities; it also enables Mirage’s probabilistic
+                                Lax Subprogram                    equivalence verifier.
+            Expression-Guided 𝜇Graph Generator (§4)
+              𝜇Graph (§3)     𝜇Graph   … 𝜇Graph                   Expression-guided µGraph generator. For each L AX sub-
+                                  𝜇Graph Candidate                program, Mirage’s expression-guided generator exhaustively
+              Probabilistic Equivalence Verifier (§5)             searches for possible µGraphs equivalent to it. A key chal-
+            Verified 𝜇Graph     …     Verified 𝜇Graph             lenge Mirage must address is its significantly larger search
+                                  Verified 𝜇Graph
+                                                                  space compared to prior superoptimization techniques. For
+                        𝜇Graph Optimizer (§6)
+                                                                  example, TASO [25] and PET [46] search only for tensor
+           Layout             Operator         Memory             programs at the kernel level, using a fixed set of pre-defined
+        Optimizations        Scheduling        Planning           kernels, while Mirage considers superoptimization across the
+                                                                  kernel, thread block, and thread levels. To efficiently navigate
+                                  Optimized 𝜇Graph
+                                                                  this significantly larger search space, Mirage introduces a
+                   Optimized Tensor Program
+                                                                  novel pruning technique based on abstract expressions, which
+             Figure 1: An overview of Mirage.                     greatly reduces the number of µGraphs Mirage must consider
+                                                                  while providing a certain theoretical guarantee on the opti-
+                                                                  mality of the discovered µGraphs. Mirage further reduces the
+   One such example is FlashAttention [17] (see §8.2 for de-
+                                                                  search space by focusing the search on the kernel and block
+tails), which optimizes attention [47] on GPUs by reordering
+                                                                  levels and using a rule-based approach for the thread level.
+operators at the algorithm level (algebraic transformations),
+reorganizing the computation across GPU kernels (yielding
+new custom kernels), and adapting the parallelization strategy    Probabilistic equivalence verifier. For a µGraph discov-
+of each kernel to the GPU architecture (schedule transforma-      ered by Mirage, verifying its functional equivalence with the
+tions). The transformations required for this example cannot      input program introduces another challenge, since the input
+be automatically discovered by existing frameworks and must       and output tensors of a program include up to many millions
+therefore be implemented manually. An implementation of           of elements. A key idea behind Mirage is probabilistic equiv-
+FlashAttention in Triton [43], a widely used tensor program       alence verification, which performs random tests over finite
+optimizer, contains more than 700 lines of code [8].              fields to check equivalence between µGraphs. While random
+   We present Mirage, the first multi-level superoptimizer for    tests typically provide limited correctness guarantees for gen-
+tensor programs. Mirage automatically discovers and veri-         eral programs, Mirage leverages a novel theoretical result
+fies sophisticated optimizations of tensor programs that re-      showing that the restrictions imposed by the L AX fragment
+quire joint optimization of algebraic transformations, schedule   ensure that, for L AX programs, random tests over finite fields
+transformations, and the discovery of new custom kernels.         offer strong correctness guarantees. Specifically, we show
+                                                                  that a polynomial identity testing (PIT) algorithm [37, 54]
+   A key idea in Mirage is µGraphs, a hierarchical graph
+                                                                  can be generalized to L AX programs, yielding a randomized
+representation that specifies tensor programs across multiple
+                                                                  algorithm for L AX program equivalence that can be made
+levels of the GPU compute hierarchy. By uniformly treating
+                                                                  arbitrarily precise. Mirage uses this randomized algorithm
+the kernel, thread block, and thread levels, µGraphs can cap-
+                                                                  to (probabilistically) ensure that each optimized program is
+ture both algebraic and schedule transformations across these
+                                                                  equivalent to the input program.
+levels. Moreover, optimizing a µGraph can introduce new
+custom kernels, which go beyond both algebraic and schedule
+transformations. For example, Mirage automatically discovers      µGraph optimizer. For each verified µGraph, Mirage’s
+the µGraphs representing FlashAttention [17] and its infer-       µGraph optimizer maximizes its runtime performance by fur-
+ence variant FlashDecoding [5] as well as other µGraphs that      ther considering potential tensor layouts, scheduling operator
+outperform these manually designed kernels by up to 2.2×          execution orders, and planning memory allocation at all of the
+for certain use cases. Most of these optimizations discovered     kernel, thread block, and thread levels. Finally, Mirage returns
+by Mirage are outside the search space of existing methods.       an optimized tensor program based on the best discovered
+   Figure 1 shows an overview of Mirage. Mirage first splits      µGraph for each individual L AX subprogram.
+an input tensor program into subprograms that fall into the
+restricted L AX fragment. The L AX fragment, formally de-         Evaluation results. We evaluate Mirage on a variety of
+fined in §5, includes multi-linear operators such as matrix       commonly used DNN benchmarks on NVIDIA A100 and
+multiplication and convolution, division (useful for normal-      H100 GPUs. Even for DNN benchmarks that are widely used
+                            Grid                            Per-GPU                    [b=16, h=1024] 𝑋                       [b=16, h=1024]
+
+             Thread Block                   Thread Block    Device Memory                    [h=1024] 𝐺           RMSNorm             𝑌          MatMul              𝑍 [b=16, d=4096]
+                                                                                     [h=1024, d=4096] 𝑊                                                                     Kernel graph
+      Shared Memory                  Shared Memory          Per-Thread-Block
+                                                            Shared Memory                        (a) Computation graph for RMSNorm and MatMul.
+    Thread
+
+
+
+
+                                   Thread
+                                                            Per-Thread
+                                                            Register File (RF)                                [b=16, h=1024] 𝑋
+                                                                                                                                          GraphDef
+                                                                                                                      [h=1024] 𝐺                            𝑍 [b=16, d=4096]
+      RF RF RF RF                    RF RF RF RF                                                                                             Op
+                                                                                                           [h=1024, d=4096] 𝑊                                               Kernel graph
+                                                            Thread Block
+                                                                                                          grid size: [x=128], forloop: [i=16]
+                      Device Memory                                                 imap: {x↔∅}      Input [b=16, h=64]
+                                                                                                %
+                                                            Thread               [b=16, h=1024] 𝑋  Iterator
+                                                                                                                         Square     Accum         Sum
+                                                                                                                                                         𝐴̅ [b=16, h=1]
+                                                                                                  fmap: {i↔h}
+                                                                                   imap: {x↔∅} ̅     Input                                      GraphDef        Output
+                                                                                       [h=1024] 𝐺
+                                                                                                                Mul      Matmul     Accum 𝐵%               𝐶̅             𝑍̅
+               Figure 2: GPU compute and memory hierarchy.                                         Iterator
+                                                                                                                                           [b=16,
+                                                                                                                                                   Op           Saver
+                                                                                                                                                                omap: {x↔d}
+                                                                                                  fmap: {i↔h}
+                                                                                                                                             d=32]              [b=16, d=32]
+                                                                                    imap: {x↔d} '    Input
+                                                                                 [h=1024, d=32] 𝑊 Iterator    [h=64, d=32]
+                                                                                                  fmap: {i↔h}                For-loop body                  Block graph
+and heavily optimized by existing systems, such as the group-                                                                      block size: [x=32], forloop: []
+query attention used in LLMs [41], Mirage still outperforms                                                                 imap: {x↔∅} 𝐴̿         Input
+                                                                                                                                                           Mul    Sqrt  Div
+                                                                                     Kernel op        Device memory          [b=16, h=1]         Iterator
+current approaches by up to 3.3× by exploiting subtle custom                                                                                     fmap: {}
+                                                                                     Block op         Shared memory         imap: {x↔d} 𝐵.         Input 1/1024        Output
+kernels and optimizations missing in existing systems.                                                                                                                           𝐶̿
+                                                                                                                             [b=16, d=1]         Iterator              Saver
+                                                                                     Thread op        Register file                              fmap: {}              omap: {x↔d}
+                                                                                                                                                          Thread graph [b=16, d=32]
+
+                                                                                                    (b) The best µGraph discovered by Mirage.
+2            Multi-Level Graph Representation
+                                                                                 Figure 3: Figure 3a is the computation graph for RMSNorm
+Mirage uses a µGraph to specify the execution of a tensor                        and MatMul. Figure 3b shows the best µGraph discovered by
+program on GPUs. A µGraph contains hierarchical graphs at                        Mirage for computing RMSNorm and MatMul, which fuses
+multiple levels to represent computation at the kernel, block,                   the computation in a single kernel to reduce device mem-
+and thread levels2 . This section first describes the GPU hier-                  ory access and kernel launch overhead, outperforms existing
+archy and uses Figure 3 as a running example to introduce                        approaches by 1.9×. Numbers in brackets indicate tensor
+the key components of a µGraph.                                                  shapes, and numbers in braces show the imap, omap, or fmap
+                                                                                 for the corresponding operators.
+GPU hierarchy. Figure 2 shows the hierarchy of today’s
+GPUs. Computations on GPUs are organized as kernels, each                        block) graph. As an example, the kernel operator in Figure 3b
+of which is a function executed simultaneously on multiple                       is a graph-defined operator specified by a block graph.
+GPU cores in a single-program-multiple-data (SPMD) fash-
+ion. A kernel includes a grid of thread blocks, each of which is                 Block graph. A block graph specifies computation associ-
+executed on one GPU streaming multiprocessor and includes                        ated with a thread block3 , where each node denotes a block
+multiple threads to perform computation on individual data                       operator specifying computation within a block, and each
+elements. Each thread is associated with a per-thread register                   edge (blue arrows in Figure 3b) is a tensor shared between
+file, and all threads within a thread block can access shared                    block operators. Mirage stores all intermediate tensors within
+memory to enable collective operations. Finally, all inputs and                  a block graph in GPU shared memory for two considerations.
+outputs of a kernel are stored in GPU device memory.                             First, GPU shared memory offers much higher bandwidth
+                                                                                 than device memory, and this design allows Mirage to reduce
+Kernel graph. Each tensor program corresponds to one                             device memory access by maximally saving intermediate
+kernel graph, where each node represents a kernel running on                     results in shared memory. Second, for tensors whose sizes
+an entire GPU, and each edge is a tensor shared between ker-                     exceed shared memory capacity and must be stored in device
+nels. All tensors in a kernel graph are stored in GPU device                     memory, Mirage uses these tensors to split computation into
+memory since different kernels cannot share data in regis-                       multiple block graphs, each of which only contains tensors in
+ter files or shared memory. Each node in a kernel graph can                      shared memory. This separation does not introduce additional
+be a pre-defined kernel operator supported by existing kernel                    access to device memory.
+libraries such as convolution by cuDNN [15] and matrix multi-                       Each block graph is also associated with properties speci-
+plication by cuBLAS [16]. In addition, to enable fine-grained                    fying its execution, which we introduce below.
+inter-kernel optimizations such as kernel fusion, a node in
+a kernel graph can also be a graph-defined kernel operator,                      Grid dimensions. All blocks within a kernel are organized
+whose semantic and behavior are defined by a lower-level (i.e.,                  into a mesh with up to 3 dimensions, identified as x, y, and z. A
+       2 For simplicity, we use the term block to refer to a thread block of a      3 In the CUDA programming model, a kernel’s computation is defined as
+
+CUDA kernel and thread to refer to a single CUDA thread.                         computations for independent thread blocks.
+                                                       grid dimensions: [x=4]
+                                                                                                                     would divide by n. Mirage specifies the for-loop body of a
+                        block (x=0)              block (x=1)             block (x=2)             block (x=3)         block graph using input iterators, for-loop accumulators, and
+                     i=0                           i=0                           i=0                           i=0
+loop dim: [i=4]
+
+
+
+
+                                                                                                                     all operators in between, as shown in the orange box in Fig-
+                     i=1                           i=1                           i=1                           i=1   ure 3b). Each input tensor to a block graph first passes through
+                     i=2                           i=2                           i=2                           i=2   an input iterator, which loads part of the tensor (e.g., X, G,
+                     i=3                           i=3                           i=3                           i=3   and W ) from device memory into shared memory. Each input
+                                    (a) imap = {x ↔ column}, fmap = {i ↔ row}                                        iterator is associated with an fmap to specify which part of
+                                                                                                                     the input tensor to load in each iteration. Formally, the fmap
+                                                grid dimensions: [x=2, y=2]
+                                                                                                                     maps each for-loop dimension to either (1) a data dimension
+                  block (x=0, y=0)        block (x=1, y=0)         block (x=0, y=1)        block (x=1, y=1)          of the input tensor or (2) the replica dimension φ. Similar to
+                                                                                                                     imap, the tensor is equally partitioned along that dimension
+                              i=2
+                                    i=3
+
+
+
+
+                                                       i=2
+                                                             i=3
+                  i=0
+                        i=1
+
+
+
+
+                                          i=0
+                                                 i=1
+
+
+
+
+                                                                                                                     for (1) and replicated for (2). Figure 4 shows how an input ma-
+                                                                                                                     trix is partitioned across blocks and for-loop iterations using
+                                                                               i=2
+                                                                                     i=3
+                                                                   i=0
+                                                                         i=1
+
+
+
+
+                                                                                                       i=2
+                                                                                                             i=3
+                                                                                           i=0
+                                                                                                 i=1
+                   loop dim: [i=4]
+                                                                                                                     different imap and fmap.
+                              (b) imap = {x ↔ φ, y ↔ row}, fmap = {i ↔ column}                                          Each block graph is also associated with a for-loop dimen-
+                                                                                                                     sion, which determines how many iterations the for-loop body
+Figure 4: Demonstrating how an input tensor is partitioned                                                           is executed to complete the kernel. In addition, Mirage uses
+across blocks and for-loop iterations with imap and fmap.                                                            for-loop accumulators (e.g., the two Accum operators in Fig-
+                                                                                                                     ure 3b) to accumulate intermediate results computed in each
+block graph is associated with up to three grid dimensions that                                                      iteration (using standard accumulators, e.g., summation and
+specify the number of blocks along the x, y, and z dimensions.                                                       max) and store the accumulated results in shared memory.
+The block graph in Figure 3b launches 128 blocks.                                                                    Once the for-loop body is completed, Mirage proceeds to
+   First, for each input tensor to a graph-defined kernel op-                                                        execute the remaining operators outside the for-loop body di-
+erator (e.g., X, G, and W in the kernel graph in Figure 3b),                                                         rectly on the accumulated results. An output saver then saves
+the associated block graph contains an imap, which specifies                                                         the final result from shared memory back to device memory.
+how the input tensor is partitioned into sub-tensors for indi-
+vidual blocks. For each grid dimension (i.e., x, y, or z), the
+                                                                                                                     Thread graph. A thread graph further reduces computation
+imap maps it to either (1) a data dimension of the input ten-
+                                                                                                                     scope from a block to a single thread. Similar to a block graph,
+sor or (2) a special replica dimension φ. For (1), the mapped
+                                                                                                                     each thread graph is also associated with block dimensions,
+data dimension is equally partitioned across blocks along the
+                                                                                                                     which specify the organization of threads within the block,
+grid dimension. For (2), the input tensor is replicated across
+                                                                                                                     and for-loop dimensions, which define the total number of
+these blocks. For example, the block graph in Figure 3b takes
+                                                                                                                     iterations to finish the defined computation. Each thread graph
+three inputs—X, G, and W —representing the input tensors
+                                                                                                                     includes input iterators, each of which loads an input tensor
+to each block. For W , its imap = {x ↔ d} indicates that the d
+dimension of tensor W is partitioned into 128 equally sized                                                          (e.g., A and B in Figure 3b) from shared memory into register
+chunks. As a result, W has shape [h = 1024, d = 32].                                                                 files, and output savers, each of which stores an output tensor
+   Second, for each output tensor of a block graph (e.g., Z in                                                       from register files back to shared memory (e.g., C). A thread
+Figure 3b), the block graph includes an omap, which specifies                                                        graph is the lowest-level graph in a µGraph and contains only
+how the outputs of all blocks are concatenated to construct                                                          pre-defined thread operators.
+the final output of the kernel operator. In an omap, each grid
+dimension must map to a data dimension of the output tensor,                                                         Tensor layout. Each tensor in the kernel, block, or thread
+since different blocks must store disjoint tensors in device                                                         graph is associated with a tensor layout (omitted in Figure 3
+memory. For Z with shape [b =16, d =32] in Figure 3b, its                                                            for simplicity), specifying how the tensor is linearized in mem-
+omap = {x ↔ d} indicates that blocks with the same x index                                                           ory. Note that tensor layouts affect only the performance of a
+are concatenated along the d dimension, resulting in a tensor                                                        µGraph and have no impact on its output correctness.
+Z with shape [b = 16, d = 4096].
+                                                                                                                     Definition 2.1 (µGraph Validity). A µGraph G is valid if: (1)
+For-loop body. To fit large input tensors in shared memory                                                           for each kernel, block, and thread operator o∈G, its input and
+and to overlap data loading from device memory with com-                                                             output tensors match the specification of o; (2) all tensors in
+putation, a block graph can include a for-loop body, which is                                                        each kernel, block, and thread graph can reside in GPU device
+executed multiple times to complete a kernel. Often, the for                                                         memory, shared memory, and register file, respectively; and
+loop in a kernel is followed by some post-processing. For ex-                                                        (3) for each block and thread graph with a for-loop body, any
+ample, when computing an average value, the for loop would                                                           path from an input to an output passes through exactly one
+perform the summation of n values and the post-processing                                                            input-iterator, one for-loop accumulator, and one output saver.
+ 1   Lax Program         X                                                      SNorm followed by a MatMul operator, where X is the input
+                                                                                tensor, and G and W denote two weight tensors. Existing
+                         Y                             O     EO
+                                                                                ML compilers generally launch two separate kernels for RM-
+                         Z                                                      SNorm and MatMul computations, since both operations inter-
+                 Compute abstract expression of the input Lax program
+                                                                                nally perform reductions across an input dimension, making
+ 2 Kernel and block graph generation (§4.1)                                     it challenging to fuse their computations into a single kernel.
+ Start from     Repeatedly generate         Prune out prefixes via abstract
+ the inputs     kernel and block
+                                                                                This approach requires storing intermediate results (i.e., Y ) in
+                                            expressions (§4.3)
+ of the Lax     operators                                                       device memory since different kernels cannot share data in
+ program
+                 X                         X                                    shared memory or register files.
+                                                                     ✄
+     X
+                                                                                   Figure 3b shows the best µGraph automatically discovered
+     Y           Y                         Y                            E       by Mirage for computing RMSNorm and MatMul in a single
+     Z           Z                         Z                                    kernel. The computation is fused in a single graph-defined
+                                                            ¬subexpr(E, EO)
+
+         Generate kernel and block graphs w/o thread-graph-defined operators    kernel operator to avoid saving intermediate results (i.e., Y )
+     X                                                                          in device memory and reduce kernel launch overheads.
+                                                                                   We highlight the key differences between the µGraph dis-
+     Y                         O
+                                                                                covered by Mirage and the original µGraph. These differences
+     Z
+                                                                                involve discovering new custom kernels and combining alge-
+ 3 Thread graph construction (§4.2)                                             braic and schedule transformations, making it infeasible to dis-
+     X                              Fuse subgraphs matching a pre-defined       cover the final µGraph by separately considering algebraic and
+                                    pattern to thread-graph-defined operators   schedule transformations. First, Mirage reorders MatMul and
+     Y                       O
+
+     Z
+                                                                                the division of RMSNorm by leveraging the commutativity
+                                                                                of matrix multiplication and element-wise division (algebraic
+                                                                                transformation). Second, Mirage performs the accumulation
+                                                                                in the root mean square (i.e., Ai = ∑ j Xi2j ) and the accumula-
+                                                                                tion in the matrix multiplication (i.e., Bik = ∑ j Xi j G jW jk ) in
+         Figure 5: An overview of the µGraph generator.                         parallel (schedule transformation), avoiding writing the accu-
+                                                                                mulation results to device memory. Next, Mirage instantiates
+Comparison with prior work. Prior work separately con-                          a thread graph to perform a sequence of element-wise op-
+siders algebraic [25, 46] or schedule transformations [13, 31,                  erators while maintaining all intermediate results in register
+35], while µGraphs can represent both in a uniform way.                         files (schedule transformation). Finally, the best discovered
+Specifically, the grid and for-loop dimensions and their cor-                   µGraph uses a new custom kernel to fuse the computation
+responding mappings (i.e., imap, omap, and fmap) to tensor                      of RMSNorm and MatMul, reducing device memory access
+dimensions constitute a comprehensive search space of possi-                    and kernel launch overheads. This µGraph outperforms the
+ble schedules for graph-defined operators. The hierarchical                     hand-written kernels in existing systems by 1.5× and 1.9×
+graphs across the kernel, block, and thread levels allow Mi-                    on NVIDIA A100 and H100 GPUs respectively.
+rage to explore algebraic transformations at these levels.
+                                                                                4    Expression-Guided µGraph Generator
+3    Case Study: RMSNorm
+                                                                                This section introduces the Mirage µGraph generator, which
+In this section, we use root mean square layer normaliza-                       automatically discovers potential µGraphs for an input tensor
+tion (RMSNorm) [50] as a case study to demonstrate the                          program. To generate µGraphs that capture optimizations at
+advantages of the µGraph representation and Mirage’s su-                        the kernel, block, and thread levels, Mirage must explore a sig-
+peroptimization approach. RMSNorm is a widely used nor-                         nificantly larger search space than existing superoptimizers,
+malization technique in recent large language models [41].                      which only consider optimizations at the kernel level. Mirage
+Formally, RMSNorm takes two tensors, X and G, as inputs                         employs two key techniques to address this challenge. First,
+and normalizes their element-wise products according to the                     based on the observation that optimizations at the kernel and
+root mean square:                                                               block levels are substantially more critical to performance
+                                        v
+                                        u d                                     than optimizations at the thread level—since accessing device
+                  Xi j G j              u1                                      and shared memory is orders of magnitude more expensive
+          Yi j =           , RMS(Xi ) = t ∑ Xi2j ,      (1)
+                 RMS(Xi )                 d j=1                                 than accessing register file—Mirage’s µGraph generator em-
+                                                                                ploys a hybrid approach: it exhaustively considers all possible
+where d is the hidden dimension size of X.                                      graphs up to a certain size at the kernel and block levels, and
+  RMSNorm is often followed by a matrix multiplication                          uses a rule-based strategy to construct graphs at the thread
+(MatMul). Figure 3a shows the computation graph of an RM-                       level. This approach reduces the search space while retaining
+Algorithm 1 Mirage’s hybrid µGraph generation algorithm.                         that G′ = (V ′ , E ′ ) is a prefix of G if it is a subgraph of G such
+Input: A L AX program with a computation graph Gref                              that ∀u ∈V ′ , ∀(v, u) ∈ E, v ∈V ′ .
+Output: A set of µGraphs S                                                          To generate the next operator in the kernel graph, Mirage
+ 1: EO ← E(Gref )                                                                enumerates the kernel operator type t and the input tensor
+ 2: S0 , S ← ∅
+ 3: G ENERATE N EXT K ERNEL O PERATOR(Inputs(Gref ))                             set I. If t represents the graph-defined operator type, Mirage
+ 4: for all G ∈ S0 do                                                            generates the associated block graph that defines its kernel
+ 5: S ← S ∪ {T HREAD G RAPH C ONSTRUCTION(G)}                                    computation by (1) enumerating the grid and for-loop dimen-
+                                                                                 sions (introduced in §2), which enables Mirage to calculate
+ 6: function G ENERATE N EXT K ERNEL O PERATOR(GK )
+ 7: S0 ← S0 ∪ {GK }
+                                                                                 the input tensor shapes of the block graph; and (2) perform-
+ 8: for all kernel graph op type t; input set I do                               ing a nested generation procedure similar to that used at the
+ 9:   if rank(I,t) > rank(op.I, op.t) for each op ∈ GK then                      kernel level but without considering graph-defined operators.
+10:     if t is a pre-defined operator then                                      Line 6-16 and line 17-24 in Algorithm 1 show how Mirage
+11:       if o := C ONSTRUCT O P(GK , I,t) is valid then
+12:         G ENERATE N EXT K ERNEL O PERATOR(GK ∪ {o})
+                                                                                 generates kernel and block operators, respectively. Mirage
+13:     else                                   ▷ t is a graph-defined operator   checks tensor shape (line 28) and memory usage (line 29)
+14:       for all gridDims; forloopDims do                                       before adding an operator, ensuring a valid prefix.
+15:         GB ← TBGraph(I, gridDimd, forloopDims)                                  To ensure that identical µGraphs are generated only once,
+16:         G ENERATE N EXT B LOCKO PERATOR(GK , GB )
+                                                                                 Mirage defines the canonical form of µGraphs. Given a
+17: function G ENERATE N EXT B LOCKO PERATOR(GK , GB )
+                                                                                 µGraph G with its operators in topological order o1 , . . . , on ,
+18: if all shared tensors in GB are consumed then                                the index of the j-th output of oi is defined as a tuple (i, j).
+19:   if o := C ONSTRUCT O P(GK , GB .I, GB ) is valid then                      Each operator oi in G is assigned a rank (inputi , typei ), where
+20:     G ENERATE N EXT K ERNEL O PERATOR(GK ∪ {o})                              inputi is the list of input tensor indices of oi , and typei is the
+21: for all block graph op type t; input set I do                                operator type. A µGraph is in canonical form if its operators
+22:   if rank(I,t) > rank(op.I, op.t) for each op ∈ GB then
+23:     if o := C ONSTRUCT O P(GB , I,t) is valid then                           are ordered in increasing rank. Mirage generates only µGraphs
+24:       G ENERATE N EXT B LOCKO PERATOR(GK , GB ∪ {o})                         in canonical form by requiring that operators be added in in-
+                                                                                 creasing order of rank (line 9 and 22). This approach does
+25: function C ONSTRUCT O P(G, I, attrs)                                         not prune out any valid solutions, since each µGraph can be
+26: E ← E XPR I NFR(E(I), attrs)                        ▷ Refer to Table 1
+27: if S UBEXPR(E, EO ) then             ▷ Prune via abstract expressions
+                                                                                 transformed to canonical form by reordering the operators.
+28:   S ← G.outputTensorShapeInfr(I, attrs)        ▷ Check tensor shape             In addition, Mirage utilizes the abstract expression tech-
+29:   if S.valid, G.mAlloc + S.size ≤ G.mLimit then ▷ Check memory               nique to prune out prefixes that do not satisfy certain con-
+30:     return G.constructOp(I, attrs)                                           straints, which will be introduced in §4.3.
+31: return Invalid
+
+32: function T HREAD G RAPH C ONSTRUCTION(G)                                     4.2    Thread Graph Construction
+33: Gfused ← G
+34: while ∃o ∈ Gfused that can be fused with a preceding operator do             While a similar nested generation strategy can be applied
+35:   Gfused ← F USE O P(Gfused , o)
+                                                                                 to thread graphs, Mirage instead constructs them using a
+36: return Gfused
+                                                                                 transformation-based approach (see the third panel of Figure 5
+                                                                                 and lines 4–5 in Algorithm 1) to reduce the search space. Mi-
+                                                                                 rage applies operator fusion when constructing thread graphs,
+most performance-critical optimizations. Second, to further                      which reduces access to shared memory by reusing tensors
+prune the search space, Mirage introduces a pruning tech-                        in register file whenever possible. For example, Mirage fuses
+nique based on an abstraction of µGraphs called abstract                         the three element-wise operators (Mul, Sqrt, and Div) in Fig-
+expression, which reduces the number of µGraphs Mirage                           ure 3b into a thread graph, avoiding saving intermediate re-
+must consider while providing a certain theoretical guarantee                    sults to shared memory and keeping the entire computation
+on the optimality of the discovered µGraphs. We introduce                        of these operators in register file. While our current imple-
+the hybrid µGraph generation algorithm in §4.1 and §4.2, and                     mentation focuses on operator fusion, additional rule-based
+the expression-guided pruning techniques in §4.3.                                transformations can be used to construct thread graphs.
+
+4.1     Kernel and Block Graph Generation                                        4.3    Pruning via Abstract Expressions
+Mirage generates kernel and block graphs incrementally and                       When searching the space of possible µGraphs, we aim to
+leverages several pruning techniques to reduce the search                        avoid µGraph prefixes whose intermediate results cannot con-
+space, as shown in the second part of Figure 5. Specifically,                    tribute to the desired computation. For example, for the input
+Mirage maintains a prefix of a valid µGraph and iteratively                      program X · Z + Y · Z, we can prune a prefix that computes
+extends it with new operators. For a graph G = (V, E) we say                     X ·Y , but we should not prune one that computes X +Y , as
+Table 1: Operators supported by Mirage. The second column                                    a         ea         ∑64ea     ea/∑64ea
+shows the graph levels supporting each operator (K, B and T                             I1       Exp        Sum       Div      Matmul       O
+denote kernel, block, and thread graphs, respectively). The last
+                                                                                                                                        ∑64b*(ea/∑64ea)
+column defines the abstract expressions for the outputs of each                         I2                  b
+operator, where E maps tensors to their abstract expressions.
+                                                                                 Figure 6: Illustration of abstract expressions. The abstract
+ µGraph      Graph     Abstract Expression of Output Tensor
+ Operator    Level                                                               expressions of tensors are annotated on edges. A human-
+ InIter      B         E(InIter(X)) = E(X)                                       friendly notation is used here: ea denotes exp(a), ∑k a denotes
+ OutSaver    B         E(OutSaver(X)) = E(X)                                     sum(k, a), a/b denotes div(a, b), and a ∗ b denotes mul(a, b).
+ Matmul      K, B, T   E(Matmul(X,Y )) = sum(k, mul(E(X), E(Y )))1               The tensors I1 , I2 and O are all 64 × 64 matrices.
+ Sum         K, B, T   E(Sum(dr , kr , X)) = sum(kr , E(X))2
+ EwAdd       K, B, T   E(EwAdd(X,Y )) = add(E(X), E(Y ))
+ EwMul       K, B, T   E(EwMul(X,Y )) = mul(E(X), E(Y ))
+ EwDiv       K, B, T   E(EwDiv(X,Y )) = div(E(X), E(Y ))                         Abstract subexpression and pruning. We use abstract ex-
+ EwExp       K, B, T   E(EwExp(X)) = exp(E(X))                                   pressions to prune the search space of µGraphs by formalizing
+ Repeat      K, B      E(Repeat(X)) = E(X)                                       two relations over abstract expressions: equivalence and ab-
+ Reshape     K, B      E(Reshape(X)) = E(X)
+ Sqr         K, B      E(Sqr(X)) = mul(E(X), E(X))                               stract subexpression. Specifically, we prune any µGraph prefix
+ Sqrt        K, B      E(Sqrt(X)) = sqrt(E(X))                                   whose abstract expression is not a subexpression of some ab-
+ SiLU        K, B      E(SiLU(X)) = silu(E(X))                                   stract expression equivalent to that of the input program. We
+ Accum       B         E(Accum(X, m, i)) = sum(i, E(X)) if m = φ else E(X) 3
+                                                                                 formalize abstract expressions as uninterpreted functions in
+ 1 k means the size of the last dimension of A, i.e., the reduction dimension.
+
+   Matmul is performed on the inner most two dimensions and leading dimensions
+                                                                                 first-order logic over the theory of integer arithmetic and un-
+   are batched.                                                                  interpreted functions, and use an SMT solver to reason about
+ 2 Sum along the dimension d for every k elements.
+                               r            r
+ 3 Accumulate the results of i for-loop iterations along fmap m.
+                                                                                 them based on two sets of axioms in Table 2: Aeq and Asub .
+                                                                                    First, Aeq axiomatizes equivalence between abstract ex-
+                                                                                 pressions. As will become clear below, these axioms need
+(X +Y ) · Z is equivalent to the input program. However, how                     not be sound—it is not required that µGraphs with equiva-
+can we determine whether a prefix can contribute to a desired                    lent abstract expressions are functionally equivalent, since
+computation while searching for that computation? Below,                         non-equivalent µGraphs can have the same abstract expres-
+we develop a pruning technique driven by this intuition that                     sion. Second, Asub axiomatizes the subexpression relation
+circumvents the “chicken and egg” problem via abstraction.                       between abstract expressions. A key property of Asub is that
+We first present the abstraction—abstract expressions—and                        whenever a µGraph G1 is a prefix of G2 —meaning G2 can
+then explain how it is used for pruning. Finally, we offer a the-                be constructed by extending G1 with additional operators—
+oretical guarantee that, under certain conditions, this pruning                  E(G1 ) is an abstract subexpression of E(G2 ); formally, Asub |=
+does not exclude the optimal µGraph.                                             subexpr(E(G1 ), E(G2 )), where |= denotes entailment modulo
+                                                                                 the theory of integer arithmetic and uninterpreted functions.
+                                                                                    During the search, Algorithm 1 first computes the abstract
+Abstract expressions. Recall that an edge in a µGraph cor-                       expression of the input L AX program, denoted EO , and prunes
+responds to a tensor-valued function of the input tensors. In-                   any µGraph prefix G if Aeq ∪ Asub ̸|=subexpr(E(G), EO ). That
+tuitively, abstract expressions abstract these functions by ig-                  is, a graph is pruned if its abstract expression is not a subex-
+noring the differences between elements of the same input                        pression of EO . This check is performed using an SMT solver
+tensor. Formally, abstract expressions are first-order logic                     (Z3 [18]). As an optimization, the results of these checks
+terms over the theory of integers and uninterpreted functions.                   are cached and reused, since Mirage may encounter multiple
+In a µGraph, the abstract expression of each edge, denoted                       µGraphs with identical abstract expressions during the search.
+by E(·), is defined in Table 1. When computing a µGraph’s
+abstract expression, all graph-defined operators are “inlined”.
+                                                                                 Theoretical guarantee and the pruning-optimality trade-
+Specifically, the expressions computed for a graph-defined
+                                                                                 off. Intuitively, our pruning would keep any prefix that can
+operator’s inputs are passed into its lower-level graph, and the
+                                                                                 lead to a µGraph whose abstract expression is equivalent (ac-
+resulting output expressions of that lower-level graph become
+                                                                                 cording to Aeq ) to that of the input L AX program. Formally:
+the output expressions of the graph-defined operator. Figure 6
+shows the abstract expressions for a subgraph of attention.                      Theorem 1 (Pruning via Abstract Expressions). For an in-
+   While abstract expressions capture some information about                     put µGraph G0 , and a µGraph G equivalent to G0 , if Aeq |=
+the function computed at each edge, they also abstract away                      E(G0 ) = E(G) then G will be generated by Algorithm 1.
+many details. For example, if X is a k × k matrix, summing
+over the rows and summing over the columns both yield the                        Proof. By Tables 1 and 2, we show that for any operator op,
+same abstract expression—sum(k, E(X)). But keeping k as                          if Y =op(X1 , . . . , Xn ), then Asub |=subexpr(E(Xi ), E(Y )) for
+part of the abstract expression is crucial for effective pruning.                1 ≤ i ≤ n. That is, the abstract expression of each input to op
+Table 2: Axiomatization of abstract expressions used for prun-                  5      Probabilistic Equivalence Verifier
+ing. Mirage checks whether an abstract expression E1 is a
+subexpression of E2 by querying an SMT solver to check if                       Mirage’s probabilistic equivalence verifier checks if a can-
+subexpr(E1 , E2 ) is entailed by these axioms. All variables in                 didate µGraph is equivalent to the desired L AX program.
+these axioms are universally quantified.                                        The key idea is to evaluate both on random inputs in two
+                                                                                finite fields. Using finite fields instead of floating point num-
+ Abstract Expression Property                              Comment
+                                                                                bers not only avoids floating point errors but also provides a
+ Equivalence Axioms Aeq
+                                                                                strong theoretical guarantee: the probability of accepting a
+ ∀x, y. add(x, y) = add(y, x)                              commutativity        non-equivalent µGraph can be made arbitrarily low.
+ ∀x, y. mul(x, y) = mul(y, x)                              commutativity
+ ∀x, y, z. add(x, add(y, z)) = add(add(x, y), z)           associativity           For general programs, random testing can hardly provide
+ ∀x, y, z. mul(x, mul(y, z)) = mul(mul(x, y), z)           associativity        any correctness guarantee. However, we show that for L AX
+ ∀x, y, z. add(mul(x, z), mul(y, z)) = mul(add(x, y), z)   distributivity       programs (formally defined below), random testing offers a
+ ∀x, y, z. add(div(x, z), div(y, z)) = div(add(x, y), z)   associativity
+ ∀x, y, z. mul(x, div(y, z)) = div(mul(x, y), z)           associativity
+                                                                                probabilistic correctness guarantee, and repeated tests can
+ ∀x, y, z. div(div(x, y), z) = div(x, mul(y, z))           associativity        reduce the error probability to an arbitrarily small threshold.
+ ∀x. x = sum(1, x)                                         identity reduction      Prior work [46] has applied a similar technique to check
+ ∀x, i, j. sum(i, sum( j, x)) = sum(i ∗ j, x)              associativity        equivalence between tensor programs that contain only lin-
+ ∀x, y, i. sum(i, add(x, y)) = add(sum(i, x), sum(i, y))   associativity
+ ∀x, y, i. sum(i, mul(x, y)) = mul(sum(i, x), y)           distributivity       ear operators (e.g., matrix multiplication, convolution). We
+ ∀x, y, i. sum(i, div(x, y)) = div(sum(i, x), y)           distributivity       develop a random testing technique that also supports divi-
+ ∀x, y. mul(exp(x), exp(y)) = exp(add(x, y))               distributivity       sion and exponentiation, which are needed for many DNN
+ ∀x, y. mul(sqrt(x), sqrt(y)) = sqrt(mul(x, y))            distributivity
+                                                                                optimizations (e.g., the RMSNorm example in §3).
+ Subexpression Axioms Asub                                                         Mirage verifies equivalence between L AX µGraphs (linear,
+ ∀x, y. subexpr(x, add(x, y))                                                   division, and an exponentiation) defined below. We introduce
+ ∀x, y. subexpr(x, mul(x, y))
+ ∀x, y. subexpr(x, div(x, y))
+                                                                                the main theoretical results in §5.1 and present Mirage’s veri-
+ ∀x, y. subexpr(y, div(x, y))                                                   fication methodology in §5.2.
+ ∀x. subexpr(x, exp(x))
+ ∀x. subexpr(x, sqrt(x))                                                        Definition 5.1 (L AX µGraph). A µGraph G is a L AX µGraph
+ ∀x. subexpr(x, silu(x))                                                        if (1) G contains only multi-linear operators4 , division, and
+ ∀x, i. subexpr(x, sum(i, x))
+ ∀x. subexpr(x, x)                                         reflexivity
+                                                                                exponentiation, and (2) every path from an input to an output
+ ∀x, y, z. subexpr(x, y) ∧ subexpr(y, z) → subexpr(x, z)   transitivity         in G includes at most one exponentiation.
+
+
+is always a subexpression of op’s output. Given that Asub                       5.1       Theoretical Foundations
+includes reflexivity and transitivity axioms, it follows that                   Without loss of generality, we assume a L AX µGraph G takes
+for any G′ that is a prefix of G, Asub |= subexpr(E(G′ ), E(G)).                n input tensors and produces one output tensor. Our theoreti-
+Together with the assumption that Aeq |= E(G0 ) = E(G), we                      cal results directly generalize to L AX µGraph with multiple
+have Aeq ∪ Asub |= subexpr(E(G′ ), E(G0 )). Thus, no prefix of                  outputs. Since each L AX µGraph includes linear operators,
+G will be pruned, and Mirage will generate G.                                   divisions, and at most one exponentiation along each path,
+                                                                                the computation for each entry of the output tensor can be
+   The theorem highlights the role of abstract expressions in
+                                                                                expressed in the following form (by using standard identities
+solving the “chicken and egg” problem outlined above. To                                 a
+
+decide if a prefix µGraph is useful, we reason about whether                    such as bc = ad    a   c  ad+bc x y
+                                                                                              bc , b + d = bd , e e = e
+                                                                                                                         x+y ):
+                                                                                             d
+it is a prefix of a useful computation in the abstract. The
+choice of abstraction and the axioms Aeq represents a tradeoff                                                   ∑ki=1 fi exp(gi /hi )
+                                                                                                                    ′                                                      (2)
+between optimality and pruning. As Theorem 1 shows, we are                                                       ∑ki=1 fi′ exp(g′i /h′i )
+only guaranteed to find the optimal µGraph whose abstract ex-
+pression is equivalent to that of the input program under Aeq .                 where fi , gi , hi , f j′ , g′j and h′j (1 ≤ i ≤ k, 1 ≤ j ≤ k′ ) are polyno-
+Stronger axioms expand the set of µGraphs covered by the                        mials over the entries of the input tensors.
+theorem but reduce pruning effectiveness, since more prefixes                      The main theoretical result that underpins our random-
+would pass the subexpression test. In particular, note that Aeq                 ized equivalence verification is the following theorem, which
+does not include cancellation rules (e.g., div(mul(x, y), y)=y).                extends polynomial identity testing (PIT) [37, 54] on finite
+As a result, Mirage may miss some equivalent µGraphs. How-                      fields to L AX µGraphs. Note that the difference of two L AX
+ever, including such axioms would make everything a subex-                          4 Operator op with n inputs is multi-linear if op is linear to all inputs I :
+                                                                                                                                                                               k
+pression of everything, therefore nulling desired pruning. As                   (1) ∀X,Y.op(I1 , ..., Ik−1 , X, Ik+1 , ..., In ) + op(I1 , ..., Ik−1 ,Y, Ik+1 , ..., In )=
+our evaluation shows, the chosen Aeq yields a good balance                      op(I1 , ..., Ik−1 , X +Y, Ik+1 , ..., In ), and
+between pruning and optimality.                                                 (2) α · op(I1 , ..., Ik−1 , X, Ik+1 , ..., In ) = op(I1 , ..., Ik−1 , α · X, Ik+1 , ..., In ).
+Table 3: Arithmetic operations for random testing. Mirage                        equivalent if they pass all random tests. The following theo-
+selects two prime numbers p and q such that q divides p − 1.                     rem, which follows from Theorem 2, shows that this process
+x p and xq are values from the√finite fields Z p and Zq , respec-                can yield an arbitrarily low error rate.
+tively. The notation x−1 and x represents the multiplicative
+inverse and square root of x in the√corresponding    finite field.               Theorem 3. Equivalent µGraphs always pass µGraph verifica-
+                                        √                                        tion. For two non-equivalent µGraphs and a given probability
+Specifically, xx−1 mod p = 1 and x x mod p = x.                                                                                  2
+                                                                                 threshold 0 < δ ≤ 1, the µGraphs pass all Ω( lnk q · ln 1δ ) random
+  Opt.     Opd. 1        Opd. 2        Output                                    tests with probability at most δ.
+                                                                             
+  Add.     (x p , xq )   (y p , yq )    (x p + y p ) mod p, (xq + yq ) mod q
+  Sub.     (x p , xq )   (y p , yq )    (x p − y p ) mod p, (xq − yq ) mod q    Numerical stability. While the theorem bridges finite fields
+  Mul.     (x p , xq )   (y p , yq )    x p y p mod p, xq yq mod q 
+                                                                                 and real-number computations, discrepancies can arise be-
+  Div.     (x p , xq )   (y p , yq )    x p y−1             −1
+                                              p mod p,xq yq mod q
+  Exp.     (x p , xq )       −            x
+                                        ω mod p, −
+                                            q                                    tween real-number computations and floating-point opera-
+                                        √ √                                      tions, particularly involving overflow or underflow due to
+  Sqrt.    (x p , xq )       −         ( x p , xq )
+                                                                                 large intermediate values. Mirage employs floating-point tests
+                                                                                 to filter out µGraphs with significant numerical errors.
+µGraphs is also of the form of Equation (2). Therefore, iden-
+tity testing of two L AX µGraphs reduces to testing if an ex-                    6    µGraph Optimizer
+pression of that form is zero. Due to the presence of exponen-
+tiation, we use two finite fields instead of one.5                               For each verified µGraph, Mirage’s µGraph optimizer maxi-
+                                                                                 mizes its performance by further performing layout optimiza-
+Theorem 2. Let P be a function of the form described in                          tion, operator scheduling, and memory planning, as shown
+Equation (2), where fi , gi , hi , fi′ , g′i , h′i are non-zero polyno-          in Figure 1. Mirage defers these µGraph optimizations until
+mials of degree at most d with integer coefficients between                      after verification for two reasons. First, these optimizations
+[−w, w]. Let p, q be primes such that q | p − 1 and q > 2w. Let                  do not affect the correctness of the generated µGraphs; omit-
+G be the set of q-th roots of unity in Z p . If P is not a zero                  ting them when generating µGraphs reduces the search space
+function, then [27]                                                              Mirage must consider, since µGraphs with the same graph
+                    "                                #                           topology but different choices of tensor layouts, operator or-
+                      ∑ki=1 fi (⃗u)ωgi (⃗v)/hi (⃗v)                   2          ders, or memory allocation plans are considered identical by
+          Pr             ′            ′ (⃗v)/h′ (⃗v)   ≤ 8dk4 /q+q−1/k .
+                       k     ′
+(⃗u,⃗v,ω)←Z p ×Zq ×G ∑i=1 f i (⃗
+           N    N                   g
+                                 u)ω i         i                                 the µGraph generator. Second, applying these optimizations
+                                                                                 after verification also reduces the search space for these opti-
+                                                                                 mizations, since the µGraph optimizer only needs to optimize
+5.2       Random Tests over Finite Fields                                        µGraphs that are functionally equivalent to the input.
+
+Mirage leverages Theorem 2 to probabilistically verify the
+                                                                                 Tensor layouts. The µGraph optimizer explores possible
+equivalence of two µGraphs by performing random testing
+                                                                                 data layouts for all intermediate tensors at the kernel, block,
+over the finite fields Z p and Zq as defined in Theorem 2. To
+                                                                                 and thread levels and chooses the best combinations to max-
+check the equivalence of two µGraphs, Mirage first gener-
+                                                                                 imize performance. We formulate layout selection as a con-
+ates input tensors, with each entry uniformly sampled from
+                                                                                 strained optimization problem and solve it optimally using an
+Z p × Zq . Mirage also samples ω uniformly from the set of
+                                                                                 integer linear programming (ILP) algorithm. Specifically, for
+q-roots of unity in Z p , which is used for exponentiation. Mi-
+                                                                                 each tensor t and each possible layout l for t, we introduce
+rage then evaluates the two µGraphs on these inputs using the
+                                                                                 a boolean variable Bt,l to indicate whether tensor t uses lay-
+operations defined in Table 3. As explained in §5.1, Z p and
+                                                                                 out l. Operators at the kernel, block, and thread levels may
+Zq are used for computations outside and inside the exponent,
+                                                                                 impose various constraints on tensor layouts. For example, to
+respectively. All operations except exponentiation are imple-
+                                                                                 use kernels from the cuBLAS library [16] for matrix multi-
+mented via modular arithmetic in Z p and Zq independently.
+                                                                                 plication, the innermost dimension of the two input tensors
+For exponentiation, Mirage uses the value xq from Zq and
+                                                                                 must be among the last two dimensions. These restrictions are
+computes ωxq mod p to obtain a result in Z p .
+                                                                                 converted into a series of linear constraints on Bt,l . Different
+   Note that in a L AX µGraph, exponentiation is performed at                    tensor layouts may lead to varying performance. For example,
+most once along each path. Finally, Mirage checks whether                        some input tensor layouts support bulk copies from device
+the two µGraphs produce identical outputs. This process is                       to shared memory, while others do not. Mirage introduces
+repeated multiple times, and the two µGraphs are considered                      a cost function to model the performance of each operator
+    5We use two primes p and q for polynomial identity testing [37, 54]          under different layout choices. Mirage uses an off-the-shelf
+outside and inside the exponents, respectively. The condition q divides p − 1    ILP solver (i.e., Z3 [18]) to find an optimal layout strategy
+is to ensure the existence of q-th roots of unity in Z p .                       that satisfies all layout constraints while minimizing cost.
+       Table 4: DNN benchmarks used in our evaluation.               implementation of the operator over modular arithmetic (see
+                                                                     §5); and (3) an extension to the abstract expression axioms
+    Name       Description                       Base Architecture
+                                                                     Aeq and Asub for the operator (see §4.3).
+    GQA        Group-query attention             LLaMA-3-70B [41]       To utilize Theorems 2 and 3, random tests should be per-
+    QKNorm     QK normalization with attention   Chameleon-7B [40]
+    RMSNorm    RMS normalization with linear     LLaMA-2-7B [44]     formed with sufficiently large prime numbers p and q and
+    LoRA       Low-rank adaptation               GPT-3-7B-LoRA [6]   iterated multiple times. Our current implementation uses the
+    GatedMLP   Gated multi-layer perceptron      Falcon-7B [10]      largest values of p and q whose product fits in 16-bit integers
+    nTrans     Normalized Tarnsformer            nGPT-1B [28]
+                                                                     (i.e., p=227, q=113) to run these random tests on GPUs. We
+                                                                     leverage Mirage’s GPU optimizations–such as keeping inter-
+Operator scheduling. In a µGraph, there are multiple topo-           mediate results in shared memory–to accelerate the search
+logical orders to execute operators, and different orders may        procedure. We also perform a single random test without
+yield different performance. For a given input µGraph, the           iterating it and compare all elements of the output tensors.
+µGraph optimizer identifies an efficient strategy to schedule        We note that this equivalence verification procedure does not
+operators by minimizing thread-level synchronization within          introduce false negatives. While it could, in theory, introduce
+each thread block (i.e., __syncthreads() in CUDA). To                false positives, we have not observed any in practice. For
+achieve this goal, Mirage labels each node with a depth, de-         these reasons, we consider this procedure sufficient for the
+fined as the length of the longest path from any input operator      search process and plan to add a final verification step that
+to that node. Mirage uses a dynamic programming algorithm            provides the theoretical guarantees only for the best µGraph
+to compute the depth of each node and schedules all operators        at the end of the optimization process.
+in ascending order of their depths. This approach minimizes
+the number of thread-level synchronizations required in the          Equivalence verification for non-L AX programs. While
+generated CUDA kernel, as Mirage only needs to insert syn-           Mirage can generate µGraphs for arbitrary tensor programs,
+chronization points between operators with different depths.         the probabilistic equivalence verifier is limited to L AX pro-
+                                                                     grams and does not support certain DNN operators such as
+Memory planning. A third class of post-verification opti-            ReLU [32]. As an alternative, we have developed a solver-
+mizations is memory planning, which determines memory off-           based verifier for arbitrary tensor programs. The verifier relies
+sets for all intermediate tensors at the kernel, block, and thread   on user-provided mathematical properties of individual opera-
+levels. Mirage formulates memory planning as a dynamic               tors (e.g., linearity, associativity, commutativity, and distribu-
+storage allocation problem and exhaustively enumerates all           tivity) defined in first-order logic and uses these properties to
+possible allocation plans to discover an optimal strategy.           verify equivalence using an automated theorem prover. Com-
+                                                                     pared to the probabilistic equivalence verifier, the solver-based
+                                                                     verifier supports more general programs, while requiring ad-
+7     Implementation                                                 ditional manual effort to specify the properties of each new
+                                                                     operator. A detailed discussion of the solver-based verifier is
+Mirage is implemented in 30K lines of code in C++, CUDA,             beyond the scope of this paper.
+and Python. Kernel operators are implemented with the
+cuDNN and cuBLAS libraries [15, 16], and block and thread
+                                                                     8     Evaluation
+operators are implemented using cuTLASS [2] and CUDA
+PTX. For each input tensor program, Mirage automatically
+                                                                     8.1    Experimental Setup
+generates and verifies potential µGraphs. For each verified
+µGraph, Mirage produces CUDA source code for all custom              Since Mirage is a superoptimizer for L AX programs, we focus
+kernels of the µGraph and compiles the code into binary using        our evaluation on various DNN benchmarks commonly used
+the CUDA compiler. This approach enables just-in-time (JIT)          in existing DNNs, each of which is a L AX program. These
+compilation and deployment for general tensor programs, and          benchmarks provide the most fine-grained way to compare the
+the generated kernels can be directly integrated into a PyTorch      performance of Mirage and existing systems. Table 4 shows
+program with a few lines of code changes. Mirage’s SMT and           the six benchmarks in our evaluation. GQA, RMSNorm, and
+ILP solvers are implemented using Z3 4.12.6 [18].                    GatedMLP are the main building blocks of large language
+   Our implementation supports the operators listed in Table 1.      models (LLMs). QKNorm introduces query-key normaliza-
+Mirage can be extended to include new operators, such as             tion before attention to enhance model convergence [40].
+variants of convolution or matrix multiplication, at the kernel,     LoRA enables low-rank adaptation for fine-tuning a DNN on
+block, and/or thread levels. To support a new linear operator,       different tasks. We use a context length of 8K for GQA and
+Mirage requires (1) a float-pointing implementation of the op-       4K for QKNorm, corresponding to the maximum supported
+erator at the kernel, block, and/or thread levels, which is used     by LLaMA-3-70B [41] and Chameleon-7B [40], respectively.
+by the µGraph optimizer to generate CUDA kernels; (2) an             In addition, we also evaluate how Mirage-generated kernels
+                                                                          FlashAttention              TensorRT
+                                                         TASO             FlashDecoding               TensorRT-LLM                 PyTorch              Triton           Mirage
+
+                                 1.8x   1.2x   1.4x             1.1x   1.0x   0.9x            3.2x   2.4x   1.5x            1.5x   1.1x   1.1x             1.5x   1.5x   1.5x            0.3x   0.3x   0.3x
+                        1.00                          1.00                           1.00                          1.00                          1.00                           1.00
+
+                        0.75                          0.75                           0.75                          0.75                          0.75                           0.75
+                     A100
+
+
+
+
+                        0.50                          0.50                           0.50                          0.50                          0.50                           0.50
+  Relative Performance
+
+
+
+
+                        0.25                          0.25                           0.25                          0.25                          0.25                           0.25
+
+                        0.00                          0.00                           0.00                          0.00                          0.00                           0.00
+                               BS=1 BS=8 BS=16               BS=1 BS=8 BS=16                BS=1 BS=8 BS=16               BS=1 BS=8 BS=16               BS=1 BS=8 BS=16                BS=1 BS=8 BS=16
+                                    GQA                          QKNorm                        RMSNorm                         LoRA                         GatedMLP                       nTrans
+                                 2.2x   1.3x   1.2x             1.4x   1.1x   1.2x            1.6x   1.2x   1.9x            2.3x   2.4x   2.0x             2.7x   2.6x   3.3x            0.4x   0.3x   0.4x
+                        1.00                          1.00                           1.00                          1.00                          1.00                           1.00
+
+                        0.75                          0.75                           0.75                          0.75                          0.75                           0.75
+H100
+
+
+
+
+                        0.50                          0.50                           0.50                          0.50                          0.50                           0.50
+
+                        0.25                          0.25                           0.25                          0.25                          0.25                           0.25
+
+                        0.00                          0.00                           0.00                          0.00                          0.00                           0.00
+                               BS=1 BS=8 BS=16               BS=1 BS=8 BS=16                BS=1 BS=8 BS=16               BS=1 BS=8 BS=16               BS=1 BS=8 BS=16                BS=1 BS=8 BS=16
+                                    GQA                          QKNorm                        RMSNorm                         LoRA                         GatedMLP                       nTrans
+
+
+ Figure 7: Comparing Mirage with existing systems for 6 benchmarks on an A100 and an H100 GPU. The performance of all
+ systems are normalized by Mirage (higher is better). Numbers above the Mirage bars show the speedup over the best baselines.
+
+ improve the end-to-end performance of full DNNs, including                                                         partially equivalent transformations as special substitutions.
+ Chameleon [40], nGPT [28], LLaMA-3 [41], and LoRA [22].                                                            PyTorch [34] uses the highly optimized cuDNN and cuBLAS
+     The experiments were conducted on NVIDIA A100 and                                                              libraries [15, 16] to perform DNN operators on GPUs. For
+ H100 GPUs, each with 40GB of memory. All our benchmarks                                                            the PyTorch baseline, we enable torch.compile and use
+ fit on a single GPU except GQA (used for LLaMA-2-70B),                                                             FlashAttention kernels to maximize performance. TensorRT
+ which is generally parallelized across four GPUs using tensor                                                      and its LLM variant TensorRT-LLM include a set of manually
+ model parallelism [39]. Therefore, we evaluate GQA under                                                           designed and highly optimized kernels for common tensor
+ this parallelism strategy, where the eight key-value heads are                                                     operators such as attention [42]. FlashAttention and its infer-
+ equally partitioned across four GPUs. Since the performance                                                        ence variant FlashDecoding are manually written kernels for
+ of Mirage and all baselines depends only on the shapes of the                                                      efficient attention [17, 21]. Finally, Triton is a schedule-based
+ input tensors, we repeat each experiment 1,000 times using                                                         optimizer to generate high-performance kernels and has been
+ random inputs and report the average run time.                                                                     adopted in production systems, outperforming other schedule-
+     One of our benchmarks, LoRA, requires concatenation                                                            based approaches [43]. All baselines use CUDA Graphs to
+ to express a common optimization: fusing two matrix mul-                                                           minimize kernel launch overhead.
+ tiplications via concatenation. To support this optimization                                                          Compared to the best existing approaches, Mirage improves
+ in Mirage, we introduce a new linear operator that takes                                                           the performance of these benchmarks by up to 3.3× by comb-
+ four inputs and computes f (W, X,Y, Z)=(W ∥X) × (Y ∥Z),                                                            ing algebraic transformations, schedule transformations, and
+ where ∥ is tensor concatenation. This operator is equivalent                                                       the generation of new custom kernels. §3 shows the best
+ to computing W × Y + X × Z. We define the abstract ex-                                                             discovered µGraphs for RMSNorm. Next, we present a case
+ pression associated with this operator as: E( f (W, X,Y, Z)) =                                                     study for the remaining benchmarks.
+ add(sum(k1 , mul(E(W ), E(Y ))), sum(k2 , mul(E(X), E(Z)))),
+ where k1 and k2 are the last dimensions of W and X.
+                                                                                                                    GQA. Group-query attention is the backbone of LLMs and
+     Unless otherwise stated, Mirage considers up to 5 operators
+                                                                                                                    has been heavily optimized by existing frameworks. For exam-
+ in the kernel graph and up to 11 operators in each block graph.
+                                                                                                                    ple, FlashAttention and FlashDecoding are expert-designed
+                                                                                                                    attention kernels and have been adopted in existing LLM in-
+ 8.2                           Benchmark Results                                                                    ference systems [17]. Mirage discovers these expert-designed
+                                                                                                                    kernels as well as other µGraphs that outperform them by up
+ Figure 7 compares the performance of Mirage with systems                                                           to 2.2×. The speedup is achieved by two additional optimiza-
+ on six DNN benchmarks on NVIDIA A100 and H100 GPUs.                                                                tions on top of existing hand-written kernels. First, current
+ All systems use half-precision floating points to run these                                                        approaches rely on fixed heuristics to determine the grid di-
+ DNN benchmarks. TASO [25] and PET [46] are DNN super-                                                              mensions for GQA, which are suboptimal in certain scenarios.
+ optimizers that automatically generate algebraic transforma-                                                       For example, TensorRT-LLM launches the GQA kernel with
+ tions at the kernel level. We report a combined TASO/PET                                                           grid dimensions of (8, 2, 1) and (8, 2, 8) when the batch sizes
+ baseline, as the latest TASO implementation includes PET’s                                                         are 1 and 8, respectively. However, both configurations can-
+                                Layer                              Kernel Graph
+     [h=64, s=32, d=64] 𝑄                                                                      [di=4096, do=4096]    𝑊          Matmul                      Kernel graph
+                                Norm
+                                Layer                                                               [s=8, di=4096]   𝑋                                Add         𝑂            𝑂&
+  [h=64, s=4096, d=64] 𝐾                      Attention     𝑂 [h=64, s=32, d=64]        [di=4096, dr=16]
+                                Norm                                                                                                                        [s=8, do=4096]
+                                                                                                  [di=4096, dr=16]   𝐴          Matmul       Matmul
+  [h=64, s=4096, d=64] 𝑉
+                                                                                                 [dr=16, do=4096]    𝐵
+
+   (a) The kernel graph for QKNorm and attention in existing systems.                               (a) The kernel graph for LoRA in existing systems.
+
+     [h=64, s=32, d=64] 𝑄                                       Kernel Graph                                                                                Kernel graph
+                                                                                               [di=4096, do=4096]    𝑊
+  [h=64, s=4096, d=64] 𝐾      GraphDef                                                                                     GraphDef
+                                              𝑂 [h=64, s=32, d=64]
+                                Op 1                                                                [s=8, di=4096]   𝑋                       𝑂 [s=8, do=4096]
+                                                                                                                             Op 1
+  [h=64, s=4096, d=64] 𝑉
+                                                                                                  [di=4096, dr=16]   𝐴
+                                          grid size: [x=64, y=2], forloop: [i=64]                 [dr=16, do=4096]   𝐵
+ imap: {x↔h, y↔s} %        Input      Layer
+                    𝑄                            MatMul       Sum          Div                                                            grid size: [x=64], forloop: [i=64]
+  [h=1, s=16, d=64]      Iterator     Norm
+                        fmap: {i↔∅}                                                           imap: {x↔∅} ̅          Input                [s=8, dr=16]
+                           Input      Layer                            Output                              𝐴                     Matmul
+  imap: {x↔h, y↔∅} 𝐾%                                                             𝑂%      [di=4096, dr=16]         Iterator                         omap: {x↔do}
+                                                   Exp       Accum      Saver
+[h=1, s=4096, d=64]      Iterator     Norm                                                                       fmap: {i↔di}                         [s=8, do=64]
+                        fmap: {i↔s}                                 omap: {x↔h, y↔s}          imap: {x↔∅}            Input                               Output
+                                                                                                           '                                Concat                 𝑂'
+  imap: {x↔h, y↔∅} %
+                    𝑉
+                            Input
+                                                 MatMul      Accum                          [s=8, di=4096] 𝑋       Iterator [s=8, di=64]                Accum
+[h=1, s=4096, d=64]       Iterator                                                                               fmap: {i↔di}
+                                                                   Block Graph                                                     [s=8, dm=80]
+                        fmap: {i↔s}
+                                                                                              imap: {x↔do}           Input
+                                                                                                           (                   Concat       Matmul       Accum
+  (b) The best µGraph discovered by Mirage for QKNorm and attention.                      [di=4096, do=64] 𝑊       Iterator
+                                                                                                                 fmap: {i↔di}       [dm=80, do=64] [s=8, do=64]
+Figure 8: Comparing the µGraphs used by existing optimizers                                  imap: {x↔do}
+                                                                                                           '
+                                                                                                                     Input
+                                                                                            [dr=16, do=64] 𝐵       Iterator [dr=16, do=64]
+and Mirage for QKNorm and attention.                                                                             fmap: {i↔∅}                           Block graph
+
+                                                                                                  (b) The best µGraph discovered by Mirage for LoRA.
+not fully utilize all SMs on A100 (108 SMs) and H100 (132                              Figure 9: Comparing the tensor programs used by existing
+SMs) GPUs. In contrast, Mirage automatically searches for                              optimizers and by Mirage for LoRA: O =W × X + B × A × X.
+the best grid dimensions for each µGraph, resulting in full SM                         Note that both matrices A and B are low-rank.
+utilization. Further ablation study shows that the performance
+of the best µGraph discovered by Mirage degrades by 18%
+                                                                                          Mirage automatically discovers a µGraph that integrates
+when using the same grid dimensions as TensorRT-LLM.
+                                                                                       QKNorm and attention computation into a custom kernel, as
+   Second, existing approaches use fixed tensor dimensions to                          shown in Figure 8b. The µGraph reorganizes the attention
+parallelize GQA across thread blocks. For example, FlashAt-                            computation to enable fusion with the two layer normaliza-
+tention [17] parallelizes attention across the sample, head,                           tions, which avoids writing intermediate results to GPU device
+and query sequence dimensions, while FlashDecoding and                                 memory and reduces the kernel execution time by up to 1.4×.
+TensorRT-LLM leverage the sample, head, and key-value se-
+quence dimensions. Both strategies are efficient for conven-
+tional multi-head attention with many heads but suboptimal                             LoRA. Low-rank adaptation (LoRA) introduces a pair of
+for GQA with fewer attention heads. In contrast, Mirage auto-                          low-rank adapters to the linear operators of a pre-trained
+matically selects the most efficient parallelization strategy by                       DNN to improve its performance for downstream tasks. Ex-
+choosing among the sample, KV heads, query sequence, and                               isting tensor program optimizers launch separate kernels
+key-value sequence dimensions. Moreover, Mirage generates                              for the original linear operator and the two additional lin-
+different µGraphs tailored to different attention scenarios, re-                       ear operators introduced by LoRA (Figure 9a), which intro-
+ducing device memory access by up to 7× compared to the                                duces high kernel launch overheads since these LoRA op-
+heuristics used in existing systems.                                                   erators involve minimal computation. Figure 9b shows the
+                                                                                       best µGraph discovered by Mirage for LoRA, which fuses
+   Implementing Mirage’s µGraphs in existing systems is
+                                                                                       the three Matmuls and the subsequent Add into a single ker-
+possible but requires extensive engineering effort to support
+                                                                                       nel. Mirage reorganizes the computation into two block-
+different kernels for different scenarios. In contrast, Mirage
+                                                                                       level Matmuls by leveraging the following algebraictrans-
+automatically generates them and verify their correctness.
+                                                                                       formation: W × X + B × A × X =(W ∥B) × X∥(A × X) . The
+                                                                                       Concats in Figure 9b do not involve any computation and are
+QKNorm. To reduce model divergence, several recent                                     performed by updating tensor offsets in GPU shared memory.
+DNNs introduce query-key normalization (QKNorm) into                                   This µGraph reduces the execution cost of LoRA by 1.1-2.4×.
+the Transformer architecture [40]. QKNorm applies layer nor-
+malization to the query and key vectors before attention, as                           GatedMLP. Gated multi-layer perceptrons are commonly
+shown in Figure 8a. These additional normalization layers are                          used in DNNs to capture non-linear representations. We use
+not yet supported by existing attention implementations (e.g.,                         the GatedMLP configuration introduced in Falcon-7B [10],
+FlashAttention and TensorRT-LLM) and require launching                                 whose kernel graph is shown in Figure 10a. Existing ten-
+separate kernels for normalization and attention.                                      sor program optimizers generally fuse the two Matmuls in
+     [di=4096, do=4096]                                             Kernel graph                                             PyTorch                 PyTorch w/ Mirage
+                            𝑊!       Matmul         SiLU
+                                                                                                           1.9x 1.5x 1.0x         1.4x 1.4x 1.4x         1.2x 1.0x 0.9x        1.4x 1.4x 1.4x
+
+
+
+
+                                                                                      Latency (ms)
+                                                                                      Per-iteration
+         [s=8, di=4096]     𝑋                                    [s=8, do=4096]                                              15
+                                                                                                      20                                            20                     6
+     [di=4096, do=4096]     𝑊"       MatMul         Mul         𝑂                                                            10
+                                                                                                                                                                           4
+                                                                                                      10                                            10
+                                                                                                                              5                                            2
+                       (a) The kernel graph for GatedMLP.
+                                                                                                       0                      0                      0                     0
+                                                                                                           BS=1 BS=8 BS=16        BS=1 BS=8 BS=16        BS=1 BS=8 BS=16       BS=1 BS=8 BS=16
+        [di=4096, do=4096] 𝑊!                                  Kernel graph                            Chameleon-7B               LLaMA-3-8B         GPT-3-7B-LoRA               nGPT-1B
+                                         GraphDef
+             [s=8, di=4096]      𝑋                        𝑂 [s=8, do=4096]
+                                           Op 1                                       Figure 11: Comparing the end-to-end inference performance
+        [di=4096, do=4096] 𝑊"
+                                                                                      of PyTorch and PyTorch with Mirage-generated kernels.
+                                              grid size: [x=128], forloop: [i=64]
+     imap: {x↔do}             Input                              Block graph
+                  𝑊                       Matmul      Accum                           Table 5: Ablation study on Mirage’s techniques to accelerate
+ [di=4096, do=32] !         Iterator
+                          fmap: {i↔di}
+                                                                                      µGraph generation. We evaluate the impact of multi-threading
+      imap: {x↔∅}             Input
+                   $                                   SiLU            Mul
+    [s=8, di=4096] 𝑋        Iterator                                                  and abstract expressions on search time for RMSNorm.
+                          fmap: {i↔di}
+                                                                     Output
+      imap: {x↔do}            Input
+                                          Matmul      Accum                      𝑂$         Max # Ops in                 Mirage            Mirage w/o                     Mirage w/o
+  [di=4096, do=32] 𝑊"       Iterator                                 Saver
+                                                                     omap: {x↔do}          a Block Graph                                 Multithreading           Abstract Expression
+                          fmap: {i↔di}                                 [s=8, do=32]
+                                                                                                           5                 11 sec                  58 sec                          768 sec
+        (b) The best µGraph discovered by Mirage for GatedMLP.
+                                                                                                           6                 16 sec                  93 sec                        19934 sec
+Figure 10: Comparing the µGraphs used by existing optimiz-                                                 7                 22 sec                 150 sec                           > 10 h
+                                                                                                           8                 24 sec                 152 sec                           > 10 h
+ers and Mirage for GatedMLP.
+                                                                                                           9                 26 sec                 166 sec                           > 10 h
+                                                                                                           10                26 sec                 166 sec                           > 10 h
+                                                                                                           11                28 sec                 183 sec                           > 10 h
+a single kernel to reduce GPU device memory access, since
+the input tensor X only needs to be loaded once. However,
+this approach still requires launching multiple kernels and                           8.3                  End-to-end Results
+storing intermediate results—specifically, the output of the
+two Matmuls—in device memory, as the SiLU activation and                              In addition to the microbenchmark performance, we also eval-
+elementwise multiplication are not fused with the Matmuls.                            uate how Mirage-generated kernels impact the end-to-end
+   In contrast, the best µGraph discovered by Mirage (Fig-                            latency of commonly used DNNs. Mirage supports just-in-
+ure 10b) performs the two Matmuls in parallel within the                              time compilation and deployment, and its generated kernels
+same block graph and fuses the remaining computation (i.e.,                           can be directly integrated into PyTorch programs. We com-
+SiLU and Mul) as post-processing steps within the same block                          pare PyTorch with its native handwritten CUDA kernels and
+graph. This approach yields 1.5× speedups on A100 GPUs                                PyTorch with Mirage-generated kernels on four DNN models.
+and 2.7-3.3× speedups on H100 GPUs.                                                   Figure 11 shows the results. Mirage reduces the end-to-end
+                                                                                      latency of these models by 0.9-1.9× by automatically gener-
+                                                                                      ating highly optimized kernels. The improvement is achieved
+nTrans. To accelerate model training, nGPT introduces nor-                            with a few lines of code changes to the PyTorch programs.
+malized Transformer, which normalizes all intermediate re-
+sults in Transformer [28]. Formally, the computation is de-                           8.4                  Search Time
+fined as y = Norm(x + α(Norm(h − x))), where Norm is a nor-
+malization layer, and x, h, and α are input tensors. Existing                         In our evaluation, Mirage takes up to 4 hours to optimize a
+systems launch three separate kernels for nTrans, since it in-                        L AX program. This optimization is a one-time cost before
+terleaves normalization and elementwise addition and multi-                           deployment on the target hardware. This subsection provides
+plication. Mirage automatically discovers a µGraph that fuses                         detailed results and an ablation study of Mirage’s search pro-
+the computation into a single kernel and stores all intermedi-                        cedure, focusing on how its techniques enable the exploration
+ate results in GPU shared memory. Mirage outperforms other                            of large µGraphs while maintaining low search time. In par-
+baselines but is slower than TensorRT. This performance gap                           ticular, we evaluate the impact of two techniques: pruning via
+is because Mirage loads data from global memory to shared                             abstract expressions (§4.3) and multi-threading. Table 5 re-
+memory and writes it back for each tensor in graph-defined                            ports the search times for RMSNorm as we vary the maximum
+kernels. This design improves memory efficiency and enables                           number of operators allowed in a block graph.
+asynchronous pipelines. However, for kernels with light com-                             Multi-threading significantly reduces the search time, while
+putation, the overhead of these memory transfers can domi-                            pruning via abstract expressions is crucial for the scalability
+nate the kernel runtime. To mitigate this overhead, we plan to                        of Mirage. Specifically, the pruning techniques allow Mirage
+extend Mirage to support bypassing shared memory during                               to explore µGraphs whose block graphs can each have at
+data loading, therefore avoiding unnecessary data movement.                           most 11 operators, while disabling abstract expression pruning
+              1.0                                                     0.95x      and schedule transformations at all of the kernel, block, and
+Performance
+
+                                0.82x
+                                                                                 thread levels. Our evaluation shows that Mirage largely out-
+  Relative
+
+
+
+
+              0.5                            0.4x
+                                                                                 performs existing DNN superoptimizers, demonstrating the
+                                                         0.3x
+                                                                                 importance of multi-level joint optimization.
+              0.0
+                    Mirage    Mirage w/o Mirage w/o Mirage w/o      Mirage w/o
+                             Thread Graph   Layout      Operator     Memory
+                             Construction Optimization Scheduling    Planning
+                                                                                 Schedule-based approaches. Recent work has introduced
+                                                                                 ML compilers that automatically optimize the execution
+                                                                                 schedule of kernel GPUs. Systems such as TVM [13, 14],
+Figure 12: Ablation study on optimizations used in Mirage.
+                                                                                 Ansor [51], and Triton [43], along with others [19, 20, 53],
+We evaluate the performance degradation when disabling each
+                                                                                 build on the idea of algorithm-schedule separation introduced
+optimization independently. The evaluation is performed on
+                                                                                 in Halide. They search for optimized schedules to execute a
+A100 for GQA with batch size 1.
+                                                                                 user-specified algorithm on GPUs. However, schedule-based
+                                                                                 approaches require users to explicitly specify the algorithm
+restricts Mirage to handle block graphs with up to 6 operators                   for each kernel, and their performance is limited to the quality
+within a 10-hour search window. Note that discovering the                        of these provided algorithms.
+optimized µGraph for RMSNorm shown in Figure 3 requires
+exploring block graphs with 11 operators.
+                                                                                 Multi-level graph representations. Welder [38] and AS-
+                                                                                 PEN [33] introduce multi-level tile graphs that share similari-
+8.5             Ablation Study on Optimizations                                  ties with Mirage’s µGraphs, as both representations follow the
+We conduct an ablation study to evaluate the impact of thread                    GPU hierarchy. However, prior work focuses on scheduling
+graph construction and optimizations introduced in §6, includ-                   transformations, while Mirage extends beyond scheduling by
+ing layout optimization, operator scheduling, and memory                         also considering algebraic transformations and the discovery
+planning. Specifically, we measure the performance degrada-                      of new custom kernels. Most optimizations presented in this
+tion of the best µGraph discovered by Mirage when each opti-                     paper fall outside the scope of these prior approaches.
+mization is disabled independently. The study is conducted
+on an A100 using the GQA benchmark with a batch size of 1.
+The results, shown in Figure 12, indicate that disabling any                     10    Conclusion
+individual optimization leads to a performance degradation
+ranging from 5% to 70%.                                                          This paper proposes Mirage, the first multi-level superopti-
+                                                                                 mizer for tensor programs. Mirage introduces a hierarchy
+                                                                                 graph representation to specify a tensor program at the kernel,
+9             Related Work                                                       thread block, and thread levels of the GPU execution hierar-
+                                                                                 chy, and uses a novel pruning technique based on abstraction
+Manually-designed kernels. Many existing frameworks,                             to significantly reduce the search space Mirage needs to con-
+such as TensorFlow XLA [1, 9], PyTorch [34], and Ten-                            sider while providing a certain optimality guarantee. Mirage
+sorRT [42], rely on GPU experts to manually design kernels                       outperforms existing tensor program optimizers by up to 3.3×,
+for ML operators. Recently, significant engineering effort                       even for widely used and heavily optimized DNNs.
+has been dedicated to hand-optimizing GPU kernels for com-
+monly used DNNs, particularly foundation models [12]. For
+example, to accelerate attention computation [47], several                       Acknowledgment
+specialized kernels have been developed based on FlashAtten-
+tion [4, 5, 17, 21]. Due to the increasing complexity of modern                  We would like to thank the anonymous reviewers and our
+GPUs—such as tensor cores in A100s [29] and thread block                         shepherd, Stephanie Wang, for their valuable comments and
+clusters in H100s [7]—manually designed kernels may miss                         suggestions. We thank Tianqi Chen, Phillip Gibbons, Bohan
+subtle optimizations that are hard to discover manually.                         Hou, Muyan Hu, Jinchen Jiang, Xiaoyu Jiang, Ruihang Lai,
+                                                                                 Yu Zhou, and other CMU Catalyst members for their feedback
+Superoptimization-based approaches. Superoptimization                            on this work. This research is partially supported by NSF
+was originally introduced to find optimal instruction se-                        awards CNS-2147909, CNS-2211882, and CNS-2239351,
+quences [11, 30, 36]. Recent work has applied superoptimiza-                     and research awards from Amazon, Cisco, Google, Meta,
+tion techniques to tensor programs [23–26, 45, 46, 49, 52].                      NVIDIA, Oracle, Qualcomm, and Samsung. This research is
+However, all these attempts only consider algebraic transfor-                    also partially supported by a research grant from the Center
+mations at the kernel level and cannot discover more sophisti-                   for New Scientists at the Weizmann Institute of Science and
+cated optimizations that require jointly considering algebraic                   by a grant from the Azrieli Foundation.
+References                                                            Brunskill, Erik Brynjolfsson, Shyamal Buch, Dallas
+                                                                      Card, Rodrigo Castellon, Niladri Chatterji, Annie Chen,
+ [1] Xla: Optimizing compiler for tensorflow. https://                Kathleen Creel, Jared Quincy Davis, Dora Demszky,
+     www.tensorflow.org/xla, 2017. 14                                 Chris Donahue, Moussa Doumbouya, Esin Durmus,
+                                                                      Stefano Ermon, John Etchemendy, Kawin Ethayarajh,
+ [2] Nvidia/cutlass: Cuda templates for linear algebra subrou-
+                                                                      Li Fei-Fei, Chelsea Finn, Trevor Gale, Lauren Gillespie,
+     tines. https://github.com/NVIDIA/cutlass, 2019.
+                                                                      Karan Goel, Noah Goodman, Shelby Grossman, Neel
+     10
+                                                                      Guha, Tatsunori Hashimoto, Peter Henderson, John He-
+ [3] Tensorflow graph optimization with grappler.                     witt, Daniel E. Ho, Jenny Hong, Kyle Hsu, Jing Huang,
+     https : //www.tensorflow.org/guide/graph_                        Thomas Icard, Saahil Jain, Dan Jurafsky, Pratyusha
+     optimization, 2019. 1                                            Kalluri, Siddharth Karamcheti, Geoff Keeling, Fereshte
+                                                                      Khani, Omar Khattab, Pang Wei Koh, Mark Krass, Ran-
+ [4] Transformer related optimizations. https : //github.             jay Krishna, Rohith Kuditipudi, Ananya Kumar, Faisal
+     com/NVIDIA/FasterTransformer, 2020. 14                           Ladhak, Mina Lee, Tony Lee, Jure Leskovec, Isabelle
+ [5] Flash-decoding    for   long-context inference.                  Levent, Xiang Lisa Li, Xuechen Li, Tengyu Ma, Ali
+     https    :    //crfm.stanford.edu/2023/10/12/                    Malik, Christopher D. Manning, Suvir Mirchandani,
+     flashdecoding.html, 2023. 2, 14                                  Eric Mitchell, Zanele Munyikwa, Suraj Nair, Avanika
+                                                                      Narayan, Deepak Narayanan, Ben Newman, Allen Nie,
+ [6] Llama-7b-lora. https : //huggingface.co/Laurie/                  Juan Carlos Niebles, Hamed Nilforoshan, Julian Nyarko,
+     llama7b-lora-merged/tree/main, 2023. 10                          Giray Ogut, Laurel Orr, Isabel Papadimitriou, Joon Sung
+                                                                      Park, Chris Piech, Eva Portelance, Christopher Potts,
+ [7] Nvidia h100 tensor core gpu. https : //www.nvidia.               Aditi Raghunathan, Rob Reich, Hongyu Ren, Frieda
+     com/en-us/data-center/h100/, 2023. 14                            Rong, Yusuf Roohani, Camilo Ruiz, Jack Ryan, Christo-
+ [8] A Triton implementation of the FlashAtten-                       pher Ré, Dorsa Sadigh, Shiori Sagawa, Keshav San-
+     tion2 algorithm.         https://triton-lang.                    thanam, Andy Shih, Krishnan Srinivasan, Alex Tamkin,
+     org/main/getting-started/tutorials/                              Rohan Taori, Armin W. Thomas, Florian Tramèr, Rose E.
+     06-fused-attention.html, 2023. 2                                 Wang, William Wang, Bohan Wu, Jiajun Wu, Yuhuai
+                                                                      Wu, Sang Michael Xie, Michihiro Yasunaga, Jiaxuan
+ [9] Martín Abadi, Paul Barham, Jianmin Chen, Zhifeng                 You, Matei Zaharia, Michael Zhang, Tianyi Zhang,
+     Chen, Andy Davis, Jeffrey Dean, Matthieu Devin, San-             Xikun Zhang, Yuhui Zhang, Lucia Zheng, Kaitlyn Zhou,
+     jay Ghemawat, Geoffrey Irving, Michael Isard, Man-               and Percy Liang. On the opportunities and risks of
+     junath Kudlur, Josh Levenberg, Rajat Monga, Sherry               foundation models, 2022. 14
+     Moore, Derek G. Murray, Benoit Steiner, Paul Tucker,
+     Vijay Vasudevan, Pete Warden, Martin Wicke, Yuan Yu,        [13] Tianqi Chen, Thierry Moreau, Ziheng Jiang, Haichen
+     and Xiaoqiang Zheng. Tensorflow: A system for large-             Shen, Eddie Q. Yan, Leyuan Wang, Yuwei Hu, Luis
+     scale machine learning. In Proceedings of the 12th               Ceze, Carlos Guestrin, and Arvind Krishnamurthy.
+     USENIX Conference on Operating Systems Design and                TVM: end-to-end optimization stack for deep learning.
+     Implementation, OSDI, 2016. 1, 14                                CoRR, abs/1802.04799, 2018. 1, 5, 14
+
+[10] Ebtesam Almazrouei, Hamza Alobeidli, Abdulaziz Al-          [14] Tianqi Chen, Lianmin Zheng, Eddie Yan, Ziheng Jiang,
+     shamsi, Alessandro Cappelli, Ruxandra Cojocaru, Mer-             Thierry Moreau, Luis Ceze, Carlos Guestrin, and Arvind
+     ouane Debbah, Etienne Goffinet, Daniel Heslow, Julien            Krishnamurthy. Learning to optimize tensor programs.
+     Launay, Quentin Malartic, Badreddine Noune, Baptiste             In Advances in Neural Information Processing Systems
+     Pannier, and Guilherme Penedo. Falcon-40B: an open               31, NeurIPS’18. 2018. 14
+     large language model with state-of-the-art performance.
+                                                                 [15] Sharan Chetlur, Cliff Woolley, Philippe Vandermersch,
+     2023. 10, 12
+                                                                      Jonathan Cohen, John Tran, Bryan Catanzaro, and Evan
+[11] Sorav Bansal and Alex Aiken. Automatic generation                Shelhamer. cudnn: Efficient primitives for deep learning.
+     of peephole superoptimizers. In Proceedings of the               CoRR, abs/1410.0759, 2014. 3, 10, 11
+     12th International Conference on Architectural Support
+                                                                 [16] Dense Linear Algebra on GPUs. https://developer.
+     for Programming Languages and Operating Systems,
+                                                                      nvidia.com/cublas, 2016. 3, 9, 10, 11
+     ASPLOS XII, 2006. 14
+                                                                 [17] Tri Dao, Daniel Haziza, Francisco Massa, and Grigory
+[12] Rishi Bommasani, Drew A. Hudson, Ehsan Adeli, Russ
+                                                                      Sizov. Flash-decoding for long-context inference, 2023.
+     Altman, Simran Arora, Sydney von Arx, Michael S.
+     Bernstein, Jeannette Bohg, Antoine Bosselut, Emma                2, 11, 12, 14
+[18] Leonardo De Moura and Nikolaj Bjørner. Z3: An ef-              Symposium on Operating Systems Principles, SOSP ’19,
+     ficient smt solver. In Proceedings of the Theory and           page 47–62, New York, NY, USA, 2019. Association
+     Practice of Software, 14th International Conference on         for Computing Machinery. 1, 2, 5, 11, 14
+     Tools and Algorithms for the Construction and Analysis
+     of Systems, TACAS’08/ETAPS’08, 2008. 7, 9, 10             [26] Zhihao Jia, Matei Zaharia, and Alex Aiken. Beyond
+                                                                    data and model parallelism for deep neural networks.
+[19] Siyuan Feng, Bohan Hou, Hongyi Jin, Wuwei Lin, Junru           In Proceedings of the 2nd Conference on Systems and
+     Shao, Ruihang Lai, Zihao Ye, Lianmin Zheng, Cody Hao           Machine Learning, SysML’19, 2019. 14
+     Yu, Yong Yu, and Tianqi Chen. Tensorir: An abstraction
+     for automatic tensorized program optimization, 2022.      [27] Jiatu Li and Mengdi Wu. Identity testing for circuits
+     14                                                             with exponentiation gates, 2025. 9
+
+[20] Bastian Hagedorn, Bin Fan, Hanfeng Chen, Cris Cecka,      [28] Ilya Loshchilov, Cheng-Ping Hsieh, Simeng Sun, and
+     Michael Garland, and Vinod Grover. Graphene: An ir for         Boris Ginsburg. nGPT: Normalized transformer with
+     optimized tensor computations on gpus. In Proceedings          representation learning on the hypersphere, 2024. 10,
+     of the 28th ACM International Conference on Architec-          11, 13
+     tural Support for Programming Languages and Operat-
+                                                               [29] Stefano Markidis, Steven Wei Der Chien, Erwin Laure,
+     ing Systems, Volume 3, ASPLOS 2023, page 302–313,
+                                                                    Ivy Bo Peng, and Jeffrey S. Vetter. Nvidia tensor core
+     New York, NY, USA, 2023. Association for Computing
+                                                                    programmability, performance & precision. In 2018
+     Machinery. 14
+                                                                    IEEE International Parallel and Distributed Processing
+[21] Ke Hong, Guohao Dai, Jiaming Xu, Qiuli Mao, Xiuhong            Symposium Workshops (IPDPSW). IEEE, May 2018. 14
+     Li, Jun Liu, Kangdi Chen, Yuhan Dong, and Yu Wang.
+                                                               [30] Henry Massalin. Superoptimizer: a look at the smallest
+     Flashdecoding++: Faster large language model infer-
+                                                                    program. In ACM SIGARCH Computer Architecture
+     ence on gpus, 2024. 11, 14
+                                                                    News, volume 15, 1987. 14
+[22] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-
+     Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu          [31] Ravi Teja Mullapudi, Andrew Adams, Dillon Sharlet,
+     Chen. Lora: Low-rank adaptation of large language              Jonathan Ragan-Kelley, and Kayvon Fatahalian. Auto-
+     models. arXiv preprint arXiv:2106.09685, 2021. 11              matically scheduling halide image processing pipelines.
+                                                                    ACM Trans. Graph., 35(4), 2016. 5
+[23] Muyan Hu, Ashwin Venkatram, Shreyashri Biswas, Bal-
+     amurugan Marimuthu, Bohan Hou, Gabriele Oliaro,           [32] Vinod Nair and Geoffrey E. Hinton. Rectified linear
+     Haojie Wang, Liyan Zheng, Xupeng Miao, Jidong Zhai,            units improve restricted boltzmann machines. In Pro-
+     and Zhihao Jia. Optimal kernel orchestration for tensor        ceedings of the 27th International Conference on Inter-
+     programs with korch. In Proceedings of the 29th ACM            national Conference on Machine Learning, ICML’10,
+     International Conference on Architectural Support for          pages 807–814, USA, 2010. Omnipress. 10
+     Programming Languages and Operating Systems, Vol-         [33] Jongseok Park, Kyungmin Bin, Gibum Park, Sangtae Ha,
+     ume 3, ASPLOS ’24, page 755–769, New York, NY,                 and Kyunghan Lee. Aspen: Breaking operator barriers
+     USA, 2024. Association for Computing Machinery. 14             for efficient parallelization of deep neural networks. In
+[24] Byungsoo Jeon, Mengdi Wu, Shiyi Cao, Sunghyun Kim,             A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt,
+     Sunghyun Park, Neeraj Aggarwal, Colin Unger, Daiyaan           and S. Levine, editors, Advances in Neural Information
+     Arfeen, Peiyuan Liao, Xupeng Miao, Mohammad Al-                Processing Systems, volume 36, pages 68625–68638.
+     izadeh, Gregory R. Ganger, Tianqi Chen, and Zhihao             Curran Associates, Inc., 2023. 14
+     Jia. Graphpipe: Improving performance and scalabil-
+                                                               [34] Tensors and Dynamic neural networks in Python with
+     ity of dnn training with graph pipeline parallelism. In
+                                                                    strong GPU acceleration. https://pytorch.org,
+     Proceedings of the 30th ACM International Conference
+                                                                    2017. 1, 11, 14
+     on Architectural Support for Programming Languages
+     and Operating Systems, Volume 1, ASPLOS ’25, page         [35] Jonathan Ragan-Kelley, Connelly Barnes, Andrew
+     557–571, New York, NY, USA, 2025. Association for              Adams, Sylvain Paris, Frédo Durand, and Saman Ama-
+     Computing Machinery. 14                                        rasinghe. Halide: A language and compiler for optimiz-
+                                                                    ing parallelism, locality, and recomputation in image
+[25] Zhihao Jia, Oded Padon, James Thomas, Todd Warsza-
+                                                                    processing pipelines. In Proceedings of the 34th ACM
+     wski, Matei Zaharia, and Alex Aiken. Taso: Optimizing
+                                                                    SIGPLAN Conference on Programming Language De-
+     deep learning computation with automatic generation
+                                                                    sign and Implementation, PLDI ’13, 2013. 1, 5
+     of graph substitutions. In Proceedings of the 27th ACM
+[36] Eric Schkufza, Rahul Sharma, and Alex Aiken. Stochas-       [46] Haojie Wang, Jidong Zhai, Mingyu Gao, Zixuan Ma,
+     tic superoptimization. In ACM SIGPLAN Notices, vol-              Shizhi Tang, Liyan Zheng, Yuanzhi Li, Kaiyuan Rong,
+     ume 48, 2013. 14                                                 Yuanyong Chen, and Zhihao Jia. PET: Optimizing ten-
+                                                                      sor programs with partially equivalent transformations
+[37] J. T. Schwartz. Fast probabilistic algorithms for verifi-        and automated corrections. In 15th USENIX Sympo-
+     cation of polynomial identities. J. ACM, 27(4):701–717,          sium on Operating Systems Design and Implementation
+     oct 1980. 2, 8, 9                                                (OSDI 21), pages 37–54. USENIX Association, July
+[38] Yining Shi, Zhi Yang, Jilong Xue, Lingxiao Ma, Yuqing            2021. 1, 2, 5, 8, 11, 14
+     Xia, Ziming Miao, Yuxiao Guo, Fan Yang, and Lidong          [47] Thomas Wolf, Lysandre Debut, Victor Sanh, Julien
+     Zhou. Welder: Scheduling deep learning memory ac-                Chaumond, Clement Delangue, Anthony Moi, Pier-
+     cess via tile-graph. In 17th USENIX Symposium on                 ric Cistac, Tim Rault, Rémi Louf, Morgan Funtow-
+     Operating Systems Design and Implementation (OSDI                icz, Joe Davison, Sam Shleifer, Patrick von Platen,
+     23), pages 701–718, Boston, MA, July 2023. USENIX                Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu,
+     Association. 14                                                  Teven Le Scao, Sylvain Gugger, Mariama Drame,
+[39] Mohammad Shoeybi, Mostofa Patwary, Raul Puri,                    Quentin Lhoest, and Alexander M. Rush. Transformers:
+     Patrick LeGresley, Jared Casper, and Bryan Catanzaro.            State-of-the-art machine learning for pytorch, tensor-
+     Megatron-lm: Training multi-billion parameter language           flow, and jax. https : //github.com/huggingface/
+     models using model parallelism. CoRR, abs/1909.08053,            transformers, 2022. 2, 14
+     2019. 11                                                    [48] Yichen Yang, Phitchaya Mangpo Phothilimtha,
+[40] Chameleon Team. Chameleon: Mixed-modal early-                    Yisu Remy Wang, Max Willsey, Sudip Roy, and
+     fusion foundation models, 2024. 10, 11, 12                       Jacques Pienaar. Equality saturation for tensor graph
+                                                                      superoptimization, 2021. 1
+[41] The Llama 3 team. The llama 3 herd of models, 2024.
+     3, 5, 10, 11                                                [49] Yichen Yang, Phitchaya Phothilimthana, Yisu Wang,
+                                                                      Max Willsey, Sudip Roy, and Jacques Pienaar. Equality
+[42] NVIDIA TensorRT: Programmable inference acceler-                 Saturation for Tensor Graph Superoptimization. Pro-
+     ator. https://developer.nvidia.com/tensorrt,                     ceedings of Machine Learning and Systems, 3:255–268,
+     2017. 11, 14                                                     March 2021. 14
+
+[43] Philippe Tillet, H. T. Kung, and David Cox. Triton:         [50] Biao Zhang and Rico Sennrich. Root mean square layer
+     an intermediate language and compiler for tiled neural           normalization, 2019. 5
+     network computations. In Proceedings of the 3rd ACM
+     SIGPLAN International Workshop on Machine Learning          [51] Lianmin Zheng, Chengfan Jia, Minmin Sun, Zhao Wu,
+     and Programming Languages, MAPL 2019, page 10–19,                Cody Hao Yu, Ameer Haj-Ali, Yida Wang, Jun Yang,
+     New York, NY, USA, 2019. Association for Computing               Danyang Zhuo, Koushik Sen, Joseph E. Gonzalez, and
+     Machinery. 2, 11, 14                                             Ion Stoica. Ansor : Generating high-performance tensor
+                                                                      programs for deep learning. CoRR, abs/2006.06762,
+[44] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert,           2020. 1, 14
+     Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov,
+     Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al.     [52] Liyan Zheng, Haojie Wang, Jidong Zhai, Muyan Hu,
+     Llama 2: Open foundation and fine-tuned chat models,             Zixuan Ma, Tuowei Wang, Shuhong Huang, Xupeng
+     2023. 10                                                         Miao, Shizhi Tang, Kezhao Huang, and Zhihao Jia.
+                                                                      EINNET: Optimizing tensor programs with Derivation-
+[45] Colin Unger, Zhihao Jia, Wei Wu, Sina Lin, Mandeep               Based transformations. In 17th USENIX Symposium on
+     Baines, Carlos Efrain Quintero Narvaez, Vinay Ramakr-            Operating Systems Design and Implementation (OSDI
+     ishnaiah, Nirmal Prajapati, Patrick S. McCormick, Ja-            23), pages 739–755, Boston, MA, July 2023. USENIX
+     maludin Mohd-Yusof, Xi Luo, Dheevatsa Mudigere,                  Association. 14
+     Jongsoo Park, Misha Smelyanskiy, and Alex Aiken.
+     Unity: Accelerating DNN training through joint opti-        [53] Size Zheng, Yun Liang, Shuo Wang, Renze Chen, and
+     mization of algebraic transformations and paralleliza-           Kaiwen Sheng. Flextensor: An automatic schedule ex-
+     tion. In 16th USENIX Symposium on Operating Systems              ploration and optimization framework for tensor compu-
+     Design and Implementation, OSDI 2022, Carlsbad, CA,              tation on heterogeneous system. In Proceedings of the
+     USA, July 11-13, 2022, pages 267–284. USENIX Asso-               Twenty-Fifth International Conference on Architectural
+     ciation, 2022. 14                                                Support for Programming Languages and Operating
+                                                                      Systems, ASPLOS ’20, page 859–873, New York, NY,
+                                                                      USA, 2020. Association for Computing Machinery. 14
+[54] Richard Zippel. Probabilistic algorithms for sparse poly-   algebraic manipulation, pages 216–226. Springer, 1979.
+     nomials. In International symposium on symbolic and         2, 8, 9
+

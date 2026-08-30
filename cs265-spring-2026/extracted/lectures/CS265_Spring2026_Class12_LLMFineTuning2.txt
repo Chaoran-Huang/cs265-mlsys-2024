@@ -1,0 +1,836 @@
+                                                   Likelihood
+ Self-Supervised
+   Fine-Tuning
+                                                    p(is, an, …, EOS)
+                                                     = p(x1, x2, …, xN )
+ Input:            Decode:          Label:
+                                                             N
+
+                                                         ∏
+                                                     =           p(xi ∣ x1, …, xi−1)
+ CS165                       VS          is
+                                                         i=1
+   is                        VS      an
+                                                  Cross-Entropy
+  an                         VS   awesome
+                                                                      N
+awesome                      VS     class                1
+                                                         N∑
+                                                     ℒ=−       log p(xi)
+ class                       VS     EOS                    i=1
+
+
+                                                  Perplexity
+                         loss function                                       N
+
+                                                                  ( N∑               )
+                                                         ℒ           1
+                                                     e       = exp −       log p(xi)
+                                                                       i=1
+                                   pre-training
+                Supervised Learning                                            Reinforcement Learning
+
+
+
+                       distance                                                          reward
+Objective ?                                       Learning Paradigms
+                      minimization                                                     maximization
+
+
+
+                     Labels from…                                                 Reward from…
+
+  internal                                                                                                human
+structure of                                external            environment
+                                                                                                        preferences
+    data                                  annotations
+
+
+
+
+                                    Supervised                         Reinforcement         Reinforcement Learning
+    Self-Supervised
+                                    Fine-Tuning                         Fine-Tuning           with Human Feedback
+      Fine-Tuning                                                                                    (RLHF)
+                                       (SFT)                               (RFT)
+
+      pre-training
+               Supervised Learning                                          Reinforcement Learning
+
+
+
+                       distance                                                       reward
+Objective ?                                    Learning Paradigms
+                      minimization                                                  maximization
+
+
+
+                  Labels from…                                                 Reward from…
+
+  internal                                                                                             human
+structure of                             external             environment
+                                                                                                     preferences
+    data                               annotations
+
+
+
+
+                                 Supervised                         Reinforcement         Reinforcement Learning
+    Self-Supervised
+      Fine-Tuning       VS       Fine-Tuning
+                                    (SFT)
+                                                                     Fine-Tuning
+                                                                        (RFT)
+                                                                                           with Human Feedback
+                                                                                                  (RLHF)
+
+                                                  post-training
+                                   Supervised
+  Self-Supervised
+                             VS
+                                                                                           Math
+                                   Fine-Tuning
+    Fine-Tuning                                                                   Games
+                                      (SFT)
+                                                                                          Data    Code
+
+                                                          Decoder Architecture
+                                                                                 JSON
+Causal Language Modeling
+(predict next token left→right)
+
+   Input:           CS165         is         an         awesome       class
+
+   Label:               is        an      awesome         class       EOS
+
+
+
+
+  Cross-Entropy                          Perplexity
+
+                      N                                           N
+
+                                                     ( N∑               )
+         1                                              1
+         N∑
+     ℒ=−       log p(xi)                    e ℒ = exp −       log p(xi)
+           i=1                                            i=1
+
+
+                                                      post-training
+ Input:                   Decode:             Label:
+
+
+ CS165                               VS         is
+
+   is                                VS        an
+
+  an                                 VS     awesome
+
+awesome                              VS       class
+
+ class                               VS        EOS
+
+
+
+
+                                    loss function
+
+
+
+          post-training
+          Instruction Tuning
+           Input:                   Decode:             Label:
+
+
+           CS165                               VS         is
+prompt:
+             is                                VS        an
+
+            an                                 VS     awesome
+
+answer:   awesome                              VS       class
+
+           class                               VS        EOS
+
+
+
+
+                                              loss function
+
+
+
+                    post-training
+          Instruction Tuning
+           Input:                   Decode:             Label:
+
+
+           CS165                               VS        null
+prompt:
+             is                                VS        null
+
+            an                                 VS     awesome
+
+answer:   awesome                              VS       class
+
+           class                               VS        EOS
+
+
+
+
+                                              loss function
+
+
+
+                    post-training
+Perplexity
+
+        Input:                  Decode:
+                                                           Instruction Tuning
+       CS165
+                                                                     Evaluation
+                                 Step 1:
+           is
+
+         an                VS   awesome
+
+      awesome              VS    class
+
+        class              VS    EOS
+
+
+
+Accuracy             loss function
+
+        Input:   Step 1:              Step 2:           Step 3:
+
+       CS165                                      Generated Answer           Golden Answer
+
+           is      an                awesome            class          EOS        class
+
+
+                                        post-training
+                Supervised Learning
+
+
+Training
+
+           Trajectories         Agent
+
+
+
+
+                                         How to Train
+                                        your… AGENT!
+                                                                                          ReAct
+                                                                                         Yao et al.
+                                                                                           2022
+Trajectory
+             User: Find the population of Tokyo and compare it to New York City.
+
+             Thought: I should search for the current population of Tokyo rst.
+             Action: search("population of Tokyo 2024")
+             Observation: Tokyo metropolitan area population is approximately 37.4 million.
+
+             Thought: Now I need the population of New York City.
+             Action: search("population of New York City 2024")
+             Observation: New York City population is approximately 8.3 million.
+
+             Thought: I have both numbers. I can now compute the comparison.
+             Final Answer: Tokyo (37.4M) is approximately 4.5 times larger than New York City (8.3M).
+
+                                    fi
+                  Supervised Learning                          Reinforcement Learning
+
+
+Training                                                                 Prob
+
+             Trajectories         Agent
+
+
+                                                               Agent             Environment
+
+
+                                                How to Train
+                                               your… AGENT!
+Evaluation
+
+              Agent
+                                 Environment
+
+                                                                        Reward
+1. Quality Assessment of Agent Fine-Tuning Benchmarks
+
+
+
+
+                   PROBLEM
+Agent ne-tuning rests on benchmarks the quality
+ of which has not been systematically assessed
+  If the scores cannot be trusted — the conclusions built on top of them cannot be trusted either
+     fi
+1. Quality Assessment of Agent Fine-Tuning Benchmarks
+
+
+
+
+                  SOLUTION
+Build a uni ed quality framework to characterize
+   what agent benchmarks actually measure
+                   Propose new benchmarks to ll in the gaps
+         fi
+              fi
+14
+Weight Update
+     Full Fine-Tuning        Parameter Ef cient Fine-Tuning
+           (FFT)        vs              (PEFT)
+fi
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+     Selective   Additive                                     Re-parameterized
+
+
+
+
+                            (2024, arXiv) Parameter-Ef cient Fine-Tuning (PEFT) for Large Models; A Comprehensive Survey
+fi
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+LLM Block
+
+         Add & Norm
+
+
+
+
+          FFN
+
+
+         Add & Norm
+
+
+
+  (Self/Cross) Attention
+
+
+
+  Q         K         V
+
+
+
+
+             x
+                       Selective PEFT
+frozen                                                         trainable
+
+
+
+
+                                   …
+
+
+
+   Layer 1   Layer 2     Layer 3       Layer L-2   Layer L-1       Layer L
+                       Selective PEFT
+frozen                                             trainable
+
+
+
+
+                                   …
+
+
+
+   Layer 1   Layer 2     Layer 3       Layer L-2      Layer L-1   Layer L
+                                       LayerNorm Tuning
+Selective PEFT                  (Bingchen Zhao et al., 2024, ICLR)
+
+Two more ideas                               LLM Block
+
+
+             BitFit                            Add & Norm
+
+
+     (Ben Zaken et al., 2021)
+                                                FFN
+
+
+                                               Add & Norm
+
+
+
+                                        (Self/Cross) Attention
+
+
+
+                                        Q         K         V
+
+
+
+
+                                                   x
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+Additive PEFT
+The Adapter Architecture
+                                          LLM Block
+                           Adapter
+                                            Add & Norm
+
+
+
+
+                                             FFN
+
+                           Adapter
+                                            Add & Norm
+
+
+
+                                     (Self/Cross) Attention
+
+
+
+                                     Q         K         V
+
+
+
+
+                                                x
+Additive PEFT
+The Adapter Architecture
+                                                          LLM Block
+                                           Adapter
+           h’                                               Add & Norm
+
+
+
+
+           +                                                 FFN
+
+                                           Adapter
+          Wup                                               Add & Norm
+
+
+
+                                                     (Self/Cross) Attention
+          ReLU    bottleneck dimension r
+
+
+
+          Wdown
+                                                     Q         K         V
+
+
+
+
+            h
+
+
+                                                                x
+                                                                                          LLM Block
+
+
+
+    Additive PEFT                                                                          Adapter
+
+
+    [Serial] Adapter (Houlsby et al., 2019)
+                                                  Adapter
+
+
+                                                    h’                                       FFN
+
+
+    h′ ← h + f(hWdown)Wup                           +                                      Adapter
+
+                    d×r
+    Wdown ∈ ℝ
+                 r×d                               Wup
+    Wup ∈ ℝ
+                                                  ReLU      bottleneck dimension r
+                                                                                     (Self/Cross) Attention
+
+    Adapters: small trainable feed-forward        Wdown
+    networks inserted between the layers in the                                      Q         K          V
+    frozen pre-trained model.
+
+
+                                                    h
+
+                                                                                               x
+￼
+     Additive PEFT
+     Pre x Tuning (Li & Liang, 2021)
+                                        LLM Block
+
+
+                                         Add & Norm
+
+
+
+
+                                          FFN
+
+
+                                         Add & Norm
+
+
+
+                                 (Self/Cross) Attention
+
+
+
+                             Q     Pk       K         Pv   V
+
+
+
+
+                                             x
+fi
+Additive PEFT
+Prompt Tuning (Brian Lester et al., 2021)
+                                    LLM Block
+
+
+                                     Add & Norm
+
+
+
+
+                                      FFN
+
+
+                                     Add & Norm
+
+
+
+                            (Self/Cross) Attention
+
+
+
+                            Q           K         V
+
+
+
+
+                                p        x
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+Which one is better from a systems perspective   ?
+
+
+
+
+          Selective   VS      Additive
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+                 Re-parameterized PEFT
+    frozen
+
+
+
+M            W            ΔW                        W’
+
+
+                                  M * d^2
+             d
+
+    frozen
+                                      bottleneck
+                          Wup         dimension r
+
+M            W                                      W’
+
+                          Wdown
+                                  M * 2dr
+             d
+    Re-parameterized PEFT                                                 LLM Block
+
+
+
+    Low Rank Adaptation (Hu et al., 2021)                                  Add & Norm
+
+
+
+
+                                 LoRA
+                                                                            FFN
+            a
+    h ← xW + ⋅ xWdownWup          h’
+            r                                                              Add & Norm
+
+
+          1×d                     +
+    x∈ℝ                                                            (Self/Cross) Attention
+              1×k
+    h, h′ ∈ ℝ
+                                                bottleneck
+                                        Wup                   Q               K                V
+          d×k
+    W∈ℝ
+                                                dimension r
+                             W
+    Wdown ∈ ℝ d×r                       Wdown                 +                                +
+                                                                   LoRA                 LoRA
+            r×k
+    Wup ∈ ℝ
+                                                              Wq             Wk                Wv
+
+                                  x
+￼
+                                                                               x
+                                                                          LLM Block
+
+                                                                            FFN
+
+    Re-parameterized PEFT                                                             LoRA
+
+
+    Low Rank Adaptation (Hu et al., 2021)                                    W2
+
+                                 LoRA                                       ReLU
+                                                                                      LoRA
+            a
+    h ← xW + ⋅ xWdownWup          h’
+            r                                                                W1
+
+          1×d                     +
+    x∈ℝ                                                            (Self/Cross) Attention
+              1×k
+    h, h′ ∈ ℝ
+                                                bottleneck
+                                        Wup                   Q              K               V
+          d×k
+    W∈ℝ
+                                                dimension r
+                             W
+    Wdown ∈ ℝ d×r                       Wdown                 +                              +
+                                                                   LoRA               LoRA
+            r×k
+    Wup ∈ ℝ
+                                                              Wq             Wk              Wv
+
+                                  x
+￼
+                                                                              x
+                                                        LLM Block
+
+                                                          FFN
+
+    Re-parameterized PEFT                                           LoRA
+
+
+    Low Rank Adaptation (Hu et al., 2021)                  W2
+
+                               LoRA                       ReLU
+                                                                    LoRA
+            a
+    h ← xW + ⋅ xWdownWup        h’
+            r                                              W1
+
+          1×d
+    x∈ℝ                                          (Self/Cross) Attention
+              1×k
+    h, h′ ∈ ℝ
+          d×k                               Q              K               V
+    W∈ℝ                         W
+    Wdown ∈ ℝ d×r                           +                              +
+                                                 LoRA               LoRA
+            r×k
+    Wup ∈ ℝ
+                                            Wq             Wk              Wv
+
+                                x
+￼
+                                                            x
+                                                     LLM Block
+
+                                                        FFN
+
+    Re-parameterized PEFT
+    Low Rank Adaptation (Hu et al., 2021)                W2
+
+                                                        ReLU
+            a
+    h ← xW + ⋅ xWdownWup        h’
+            r                                            W1
+
+          1×d
+    x∈ℝ                                         (Self/Cross) Attention
+              1×k
+    h, h′ ∈ ℝ
+          d×k                               Q             K              V
+    W∈ℝ                         W
+              d×r
+    Wdown ∈ ℝ
+            r×k
+    Wup ∈ ℝ
+
+                                x                         x
+￼
+                  PEFT Taxonomy
+
+     Full Fine-Tuning             Parameter Ef cient Fine-Tuning
+           (FFT)        vs                   (PEFT)
+
+
+
+
+                             Selective                      Additive
+
+
+
+
+                                                                   Re-parameterized
+fi
+Which one is better from a systems perspective   ?
+
+
+
+
+           Additive   VS   Re-parameterized
+     PEFT Taxonomy
+
+
+
+
+                                                                   LoRA Variants
+
+
+
+
+            (2024, arXiv) Parameter-Ef cient Fine-Tuning (PEFT) for Large Models: A Comprehensive Survey
+fi
+                                                                              LoRA Variants
+
+
+                                                                                            9
+
+                                                                                           10
+
+                                                                                           10
+                                                                                            3
+                                                                                           11
+
+                                                                                            8
+                                                                                           4
+                                                                                           2
+                                                                                           2
+                                                                                           2
+                                                                                           10
+
+                                                                                           71
+
+
+
+     (2025, arXiv) PEFT A2Z: Parameter-Ef cient Fine-Tuning Survey for Large Language and Vision Models
+fi
+2. Parameter Budget Allocation in Parameter E cient Fine-Tuning
+
+
+
+
+                     PROBLEM
+  Given a xed parameter budget, how should LoRA
+ adapters be allocated across the layers and modules
+      of an LLM to maximize task performance?
+  The design space is combinatorially large — methods distribute them uniformly or dynamically
+       fi
+                                                              ffi
+2. Parameter Budget Allocation in Parameter E cient Fine-Tuning
+
+
+
+
+                                         ffi
+2. Parameter Budget Allocation in Parameter E cient Fine-Tuning
+
+
+
+
+                     SOLUTION
+ Formally de ne the primitives of the LoRA placement
+design space and identify good domains to restrict the
+           otherwise in nite design space
+        Generalize across models and domains — nd simple allocation heuristics
+         fi
+              fi
+                             fi
+                                                        ffi
+Image Calculator Throwback
+    LLM
+Fine-Tuning
+                     LLM
+                 Fine-Tuning Augmentation
+                 Where to encode new information?
+
+
+
+Context Window                                      Weights
+

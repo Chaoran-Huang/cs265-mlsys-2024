@@ -1,0 +1,1748 @@
+Stratos Idreos
+Scope: End-to-end AI systems
+Topics: LLMs, Context, Agents, RAG
+Inspiration: Research + Industry
+Technical: Storage/Computation/Self-designing
+Projects:
+       Systems (LLM core, or design)
+       Research (LLM compiler, RAG, Image,
+       Fine-tuning, Context Management)
+       Research is open to 165 & systems
+       students but eventually open to all
+Timeline:
+       5 weeks of introduction
+       then reading research papers
+Goals: Develop to an “AI systems person”
+Info: http://daslab.seas.harvard.edu/classes/cs265/
+USE AI AGGRESSIVELY, BUT NEVER OUTSOURCE THE HARD PART
+
+The Equation of Learning
+Struggle + Effort + Repetition = Friction + Pattern Recognition = Unique Learning + Skills
+USE AI AGGRESSIVELY, BUT NEVER OUTSOURCE THE HARD PART
+
+The Equation of Learning
+Struggle + Effort + Repetition = Friction + Pattern Recognition = Unique Learning + Skills
+
+
+
+
+  Every time you push through confusion, you’re building irreducible intellectual capital
+
+
+                 If AI removes friction before your brain has learned from it,
+                           you’ve traded learning for convenience
+                                                                         CPU
+                           need to only read x…
+                       but have to read all of page 1                  registers
+data value x                                                        on chip cache
+
+                                                                    on board cache
+
+
+
+
+                                                        data move
+                                             …
+               page1    page2      page3                               memory
+                                                                         disk
+                                   query x<5
+
+
+
+
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+                                                            40 bytes
+                                   query x<5
+
+                      scan
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+                                                            40 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+                                                             40 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+                      scan            scan
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+
+
+
+                                    28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                             80 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+                                                              80 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               423
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6       …
+
+                                 page size: 5x8 bytes
+                                                              120 bytes
+                                   query x<5
+
+                      scan
+
+                   7 11 3 9 6       28976               423
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+
+
+
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6   …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions               40 bytes
+                                   query x<5
+
+                     oracle
+
+                   5 10 6 4 12                          4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions               40 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               4
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6     …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                40 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+                     oracle          oracle
+
+                   5 10 6 4 12      28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+
+
+
+                                    28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                80 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6      …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                  80 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42 3
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6        …
+
+                                 page size: 5x8 bytes
+             an oracle gives us the positions                  120 bytes
+                                   query x<5
+
+                     oracle
+
+                   7 11 3 9 6       28976               42 3
+(size=120 bytes)
+memory level N
+
+memory level N-1
+
+
+                   5 10 6 4 12      28976           7 11 3 9 6       …
+
+                                 page size: 5x8 bytes
+when does it make sense to have an oracle
+      how can we minimize the cost
+
+ e.g., query x<5
+ 5 10 6 4 12       28976     7 11 3 9 6     …
+algorithm/system design = not just computation
+algorithm/system design = not just computation
+
+
+
+ Is there maybe a perfect system? Nope…
+Intro into high-level ideas for
+  Self-designing Systems
+The problem: as the big data/AI world keeps changing…
+The problem: as the big data/AI world keeps changing…
+
+      there is a continuous need for new data systems
+ but it is extremely hard to design & build new systems
+How do we design a system that is X times faster for a workload W?
+
+
+
+
+           NEED TO DESIGN NEW DATA SYSTEMS
+How do we design a system that is X times faster for a workload W?
+
+
+           How do we design a system that allows for control of cloud cost?
+
+
+
+
+           NEED TO DESIGN NEW DATA SYSTEMS
+ How do we design a system that is X times faster for a workload W?
+
+
+             How do we design a system that allows for control of cloud cost?
+
+What happens if we introduce new application feature Y?
+
+Should we upgrade to new version Z?
+
+What will break our system?
+
+
+
+
+             NEED TO DESIGN NEW DATA SYSTEMS
+ How do we design a system that is X times faster for a workload W?
+
+      BOTTLENECK: SUB-OPTIMAL SYSTEMS
+             How do we design a system that allows for control of cloud cost?
+
+What happens if we introduce new application feature Y?
+
+Should we upgrade to new version Z?
+
+What will break our system?
+
+
+
+
+             NEED TO DESIGN NEW DATA SYSTEMS
+How do I make my data system run X times faster?
+
+    BOTTLENECK: SUB-OPTIMAL SYSTEMS
+                                      How do I control my bill on the cloud?
+
+
+
+huge cloud cost
+
+       environmental impact
+
+
+            NEED TO DESIGN NEW DATA SYSTEMS
+How do I make my data system run X times faster?
+
+    BOTTLENECK: SUB-OPTIMAL SYSTEMS
+                                      How do I control my bill on the cloud?
+
+                              expensive transitions
+huge cloud cost
+
+       environmental impact
+
+
+            NEED TO DESIGN NEW DATA SYSTEMS
+How do I make my data system run X times faster?
+
+    BOTTLENECK: SUB-OPTIMAL SYSTEMS
+                                      How do I control my bill on the cloud?
+
+                              expensive transitions
+huge cloud cost
+                   application feasibility
+       environmental impact
+
+
+            NEED TO DESIGN NEW DATA SYSTEMS
+How do I make my data system run X times faster?
+
+     BOTTLENECK: SUB-OPTIMAL SYSTEMS
+huge cloud cost                            How    do I control  my bill on the cloud?
+                  expensive transitions application feasibility environmental impact
+
+
+
+                    complexity
+                     how we BUILD systems
+
+
+              NEED TO DESIGN NEW DATA SYSTEMS
+                  g     r s
+              in ne
+          n n       i g                      phd
+     d  i       e s
+  e          d
+th ms
+    t e
+   s
+sy                            phd                            phd
+
+
+                                         BUILD
+                                    GET N EXPERT DESIGNERS
+
+                      phd              GIVE THEM T TIME
+                                                                   phd
+                                      HOPE FOR THE BEST
+
+
+
+
+                              phd                            phd
+
+
+                                             phd
+                  g     r s
+              in ne
+          n n       i g                      phd
+     d  i       e s
+  e          d
+th ms
+    t e
+   s
+sy                            phd                            phd
+
+
+                                         BUILD
+                                    GET N EXPERT DESIGNERS
+
+                      phd              GIVE THEM T TIME
+                                                                   phd
+                                      HOPE FOR THE BEST
+
+
+
+
+                                                                            art
+                              phd
+                                                          n is
+                                                             phd         an
+                                                     desig
+                                             phd
+                  g     r s
+              in ne
+          n n       i g                      phd
+     d  i       e s
+  e          d
+th ms
+    t e
+   s
+sy                            phd                            phd
+
+
+                                         BUILD
+                                    GET N EXPERT DESIGNERS
+
+                      phd              GIVE THEM T TIME
+                                                                   phd
+                                      HOPE FOR THE BEST
+
+
+
+
+                                                                            art
+                              phd
+                                                          n is
+                                                             phd         an
+                                                     desig
+                                             phd
+                  g     r s
+              in ne
+          n n       i g                       phd
+     d  i       e s
+  e          d
+th ms
+sy
+   st e
+                               phd
+                                   Design: 6-7 years
+                                              phd
+                              Reasoning: months/impossible
+                                          BUILD
+                                     GET N EXPERT DESIGNERS
+
+                      phd               GIVE THEM T TIME
+                                                                    phd
+                                       HOPE FOR THE BEST
+
+
+
+
+                                                                             art
+                               phd
+                                                           n is
+                                                              phd         an
+                                                      desig
+                                              phd
+                  g     r s
+              in ne
+          n n       i g                       phd
+     d  i       e s
+  e          d
+th ms
+sy
+   st e
+                               phd
+                                   Design: 6-7 years
+                                              phd
+                              Reasoning: months/impossible
+                                          BUILD
+                                     GET N EXPERT DESIGNERS
+
+                      phd               GIVE THEM T TIME
+                                                                    phd
+                                       HOPE FOR THE BEST
+
+
+
+
+                                                                             art
+                               phd
+                                                           n is
+                                                              phd         an
+                                                      desig
+                                              phd
+                  g     r s
+              in ne
+          n n       i g                       phd
+     d  i       e s
+  e          d
+th ms
+sy
+   st e
+                               phd
+                                   Design: 6-7 years
+                                              phd
+                              Reasoning: months/impossible
+                                          BUILD
+                                                data
+                                              hardware
+                                     GET N EXPERT  DESIGNERS
+                                             applications
+                      phd               GIVE THEM T TIME
+                                                                     phd
+                                       HOPE FOR THE BEST
+                                                      years
+
+
+
+
+                                                                              art
+                               phd
+                                                           n isphd         an
+                                                      desig
+                                              phd
+1 design/research skills do not scale
+
+
+
+
+                                dataskills
+       applications
+data
+
+
+
+
+         systems
+
+
+
+
+                           design
+                          daily
+                                             [S t r a t o s ’ G u e s s ]
+
+
+
+
+                  years                                       years
+     2 no one knows everything out there
+                 100
+
+
+                 80
+
+
+                                                                                        NoSQL storage
+# of citations
+
+
+
+
+                 60
+
+
+                 40                                                                     P. O’Neil, E. Cheng, D. Gawlick, E, O'Neil
+                                                                                        The log-structured merge-tree (LSM-tree)
+                                                                                        Acta Informatica 33 (4): 351–385, 1996
+                 20
+
+
+                  0
+                  1996   1998   2000   2002   2004   2006   2008   2010   2012   2014
+     2 no one knows everything out there
+                 100
+
+
+                 80
+
+                                              Google
+                                                                                        NoSQL storage
+# of citations
+
+
+
+
+                 60
+                                              BigTable
+                 40                                                                     P. O’Neil, E. Cheng, D. Gawlick, E, O'Neil
+                                                                                        The log-structured merge-tree (LSM-tree)
+                                                                                        Acta Informatica 33 (4): 351–385, 1996
+                 20
+
+
+                  0
+                  1996   1998   2000   2002   2004   2006   2008   2010   2012   2014
+     THE HIPPO METHOD
+"HIGHEST PAID PERSON'S OPINION”
+standard “solution”
+
+
+expose knobs
+Some possible ideas
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+     Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+     Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+
+3.   Aren’t learned system components able to adapt even more?
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+     Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+
+3.   Aren’t learned system components able to adapt even more?
+     Yes, better than #2 (e.g., data adaptivity), but still only around a narrow design space.
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+     Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+
+3.   Aren’t learned system components able to adapt even more?
+     Yes, better than #2 (e.g., data adaptivity), but still only around a narrow design space.
+
+4.   Can’t we just throw ML into the problem? ChatGPT?
+Some possible ideas
+1.   Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+     Yes, but only around a narrow design space.
+
+2.   Aren’t adaptive data systems architectures able to adapt to new applications?
+     Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+
+3.   Aren’t learned system components able to adapt even more?
+     Yes, better than #2 (e.g., data adaptivity), but still only around a narrow design space.
+
+4.   Can’t we just throw ML into the problem? ChatGPT?
+     Yes, but the programming design space is massive. A correct design is not a desired one.
+Some possible ideas
+1.    Aren’t data systems already “adaptive”, e.g., optimizer makes the best online decision?
+      Yes, but only around a narrow design space.
+
+2.    Aren’t adaptive data systems architectures able to adapt to new applications?
+      Yes, better than #1 (e.g., query adaptivity), but still only around a narrow design space.
+
+3.    Aren’t learned system components able to adapt even more?
+      Yes, better than #2 (e.g., data adaptivity), but still only around a narrow design space.
+
+4.    Can’t we just throw ML into the problem? ChatGPT?
+      Yes, but the programming design space is massive. A correct design is not a desired one.
+
+
+
+     These ideas can lead to better systems but we need something more to
+
+     FIND FAST THE BEST POSSIBLE DESIGN
+SELF-DESIGNING SYSTEMS
+Automatically invent & build the perfect system for any new application
+massive design space of system designs
+                                             system=
+                                         a set of low-level
+                                         design decisions
+
+
+
+
+massive design space of system designs
+                                                  system=
+few existing designs                          a set of low-level
+                                              design decisions
+
+
+
+
+     massive design space of system designs
+                                                  system=
+few existing designs                          a set of low-level
+                                              design decisions
+
+                                                                    clo
+                                                            a d   bu ud
+                                                       k l o        dg
+                                                    or                 et
+                                                  w
+
+     massive design space of system designs
+                                                           clo
+                                                   a d   bu ud
+                                              k l o        dg
+                                           or                 et
+                                         w
+
+massive design space of system designs
+
+
+
+   reasoning: understand all the
+   design decisions & their impact
+——HOW——
+  DO WE
+——START——
+                         robustness
+              SLAs                    concurrency
+
+
+
+multi-tenancy                                  data types
+                     ——HOW——
+                       DO WE
+  indexing           ——START——                  complex
+                                               operations
+
+
+             optimizer                 hardware
+                           cloud
+        ——HOW——
+INDEX
+          DO WE
+DATA    ——START——
+no perfect structure
+                                          EDBT 2016
+                                       SIGMOD 2016
+
+
+
+
+                             a te
+                          p d
+                        U
+            Read        Me
+              ampli
+                      cation mo
+                                  ry
+ fi
+   no perfect structure
+                                                         EDBT 2016
+                                                      SIGMOD 2016
+
+
+
+
+               ad
+                                            a te
+                                           d
+               Re
+
+                                       U p
+                           Read        Me
+                             ampli
+                                     cation mo
+                    Me
+                                                 ry
+     te
+  da
+
+
+
+
+                    mo
+Up
+
+
+
+
+                      ry
+          fi
+   no perfect structure
+                                                                       EDBT 2016
+                                                                    SIGMOD 2016
+
+
+
+
+                ad
+                                                          a te
+                                                         d
+               Re
+
+                                                     U p
+                    point
+                    tree                 Read        Me
+                                           ampli
+                                                   cation mo
+                                Me
+                                                               ry
+     te
+  da
+
+
+
+
+                                  mo
+Up
+
+
+
+
+     differential       approximate
+                                    ry
+          fi
+         read
+
+
+
+
+update          memory
+point read   range read
+
+
+
+
+update        memory
+             point read       range read
+
+
+
+update
+
+
+                               memory
+
+    insert           delete
+ALGORITHMS         p o i nt re a d        ra
+                                              ng
+                                                e
+                                                    re
+                                                       ad
+                             INDEX
+
+   te
+  da
+  up
+                             DATA
+
+
+
+
+                                                   y
+                                               or
+                                          em
+                                          m
+       ins
+          er
+               t                 delete
+SYSTEMS
+ALGORITHMS
+   INDEX
+
+   DATA
+NoSQL systems are the backbone of the BigData and AI era
+LSM-tree    FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+KV-stores      MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+NoSQL systems are the backbone of the BigData and AI era
+LSM-tree        FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+KV-stores         MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+       buffer
+NoSQL systems are the backbone of the BigData and AI era
+LSM-tree         FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+KV-stores          MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+       buffer
+
+
+
+
+       level 0
+                       level 1      level 2      level 3
+     NoSQL systems are the backbone of the BigData and AI era
+     LSM-tree         FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+     KV-stores          MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                lters
+            buffer
+
+
+
+
+            level 0
+                            level 1      level 2      level 3
+fi
+     NoSQL systems are the backbone of the BigData and AI era
+     LSM-tree         FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+     KV-stores          MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                lters       fences
+            buffer
+
+
+
+
+            level 0
+                            level 1      level 2      level 3
+fi
+     NoSQL systems are the backbone of the BigData and AI era
+     LSM-tree         FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+     KV-stores          MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                lters       fences
+            buffer                                       cache
+
+
+
+
+            level 0
+                            level 1      level 2      level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores           MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                     lters       fences
+                 buffer                                       cache
+
+
+
+        diverse
+     data structures
+
+
+                 level 0
+                                 level 1      level 2      level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores             MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                         lters      fences
+                 buffer                                         cache
+
+
+
+        diverse
+                          interactions
+     data structures
+
+
+                 level 0
+                                    level 1      level 2     level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores             MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                         lters           fences
+                 buffer                                              cache
+
+
+
+        diverse
+                          interactions        hardware
+     data structures
+
+
+                 level 0
+                                    level 1          level 2      level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores             MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                         lters           fences
+                 buffer                                                      cache
+
+
+
+        diverse
+                          interactions        hardware         parallelism
+     data structures
+
+
+                 level 0
+                                    level 1          level 2             level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores             MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                         lters           fences
+                 buffer                                                      cache
+
+
+                                                                                   robustness
+        diverse
+                          interactions        hardware         parallelism         cloud cost
+     data structures
+                                                                                      SLAs
+
+
+                 level 0
+                                    level 1          level 2             level 3
+fi
+        NoSQL systems are the backbone of the BigData and AI era
+         LSM-tree          FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+         KV-stores             MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                         lters          fences
+                 buffer                                                 cache
+
+
+                                                                           robustness
+        diverse
+                          interactions       hardware     parallelism      cloud cost
+     data structures
+                                                                              SLAs
+
+
+                 level 0
+          There exist numerous
+                           level 1variations  of2 NoSQL KV-stores
+                                           level        level 3
+          LSM-tree variants, B-trees (MongoDB), Hash-index (Microsoft)
+fi
+              NoSQL systems are the backbone of the BigData and AI era
+
+
+
+                    ad
+                  Re
+              LSM-tree         FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+              KV-stores            MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+
+                                                lters          fences
+         e
+
+
+
+
+                                       Me
+          t
+       da
+
+
+
+
+                     buffer                                                    cache
+
+
+
+
+                                         m
+     Up
+
+
+
+
+                                             or
+                                                y
+                                                                                  robustness
+          diverse
+                              interactions          hardware     parallelism      cloud cost
+       data structures
+                                                                                     SLAs
+
+
+                     level 0
+               There exist numerous
+                                level 1variations  of2 NoSQL KV-stores
+                                                level        level 3
+               LSM-tree variants, B-trees (MongoDB), Hash-index (Microsoft)
+fi
+              NoSQL systems are the backbone of the BigData and AI era
+
+
+
+                     ad
+                  Re
+              LSM-tree       FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+                      b-tree
+              KV-stores         MACHINE LEARNING, SQL, CRYPTO, SCIENCE
+
+                          LSM                lters          fences
+         e
+
+
+
+
+                                    Me
+          t
+       da
+
+
+
+
+                     buffer                                                 cache
+
+
+
+
+                                      m
+     Up
+
+
+
+
+                                          or
+               LSH
+
+
+
+
+                                             y
+                                                                               robustness
+          diverse
+                           interactions          hardware     parallelism      cloud cost
+       data structures
+                                                                                  SLAs
+
+
+                     level 0
+               There exist numerous
+                                level 1variations  of2 NoSQL KV-stores
+                                                level        level 3
+               LSM-tree variants, B-trees (MongoDB), Hash-index (Microsoft)
+fi
+              NoSQL systems are the backbone of the BigData and AI era
+
+
+
+                     ad
+                  Re
+              LSM-tree       FACEBOOK, AMAZON, GOOGLE, TWITTER, LINKEDIN
+                      b-tree
+              KV-stores                   Constant
+                                MACHINE LEARNING,   and
+                                                  SQL,   increasing
+                                                       CRYPTO,      e orts
+                                                               SCIENCE
+                                                         for new system designs as
+                          LSM                    lters applications  & hardware change
+                                                                fences
+         e
+
+
+
+
+                                    Me
+          t
+       da
+
+
+
+
+                     buffer                                                   cache
+
+
+
+
+                                      m
+     Up
+
+
+
+
+                                          or
+               LSH
+
+
+
+
+                                             y
+                                                                                 robustness
+          diverse
+                           interactions            hardware     parallelism      cloud cost
+       data structures
+                                                                                    SLAs
+
+
+                     level 0
+               There exist numerous
+                                level 1variations  of2 NoSQL KV-stores
+                                                level        level 3
+               LSM-tree variants, B-trees (MongoDB), Hash-index (Microsoft)
+fi
+                                            ff
+                                                                      robustness
+   diverse
+                              interactions   hardware   parallelism   cloud cost
+data structures
+                                                                         SLAs
+
+Requirements/Goals
+                     e s
+                 eri
+              q u
+      a &
+   a t
+ d
+
+                 ce
+              man
+         fo r
+   e r
+ p
+
+
+                et
+              g
+         b u d
+                       $ $$
+                                                                      robustness
+   diverse
+                              interactions   hardware   parallelism   cloud cost
+data structures
+                                                                         SLAs
+
+Requirements/Goals                 Context
+                     e s
+                 eri
+              q u
+      a &
+   a t
+ d
+
+                 ce
+              man
+         fo r
+   e r
+ p
+
+
+                et
+              g
+         b u d
+                       $ $$       SLA
+                                                                      robustness
+   diverse
+                              interactions   hardware   parallelism   cloud cost
+data structures
+                                                                         SLAs
+
+Requirements/Goals                 Context
+                     e s
+                 eri
+              q u
+      a &
+   a t
+ d
+
+                 ce
+              man
+         fo r
+   e r
+ p
+
+
+                et
+              g
+         b u d
+                       $ $$       SLA
+                                                                        robustness
+   diverse
+                              interactions   hardware   parallelism     cloud cost
+data structures
+                                                                           SLAs
+
+Requirements/Goals                 Context
+                     e s
+                 eri
+              q u
+     a &                                                              best
+ dat
+
+
+                 ce
+              man
+         fo r
+     r
+ p e
+                                                                      SYSTEM
+                                                                      design & code
+                et
+              g
+         b u d
+                       $ $$       SLA
+                   i es
+                er
+             q u
+     a &
+  a t
+d
+
+                c e
+              an
+        r   m
+    rfo
+pe
+
+
+              et
+            g
+        bu d
+                      $ $$   SLA
+
+                          what-if reasoning
+                      s
+               uer i e                        design1
+             q
+     a &                                       perf1
+  a t
+d
+                                               cost1
+                c e
+              an
+        r   m
+    rfo
+pe
+
+
+              et
+            g
+        bu d
+                      $ $$   SLA
+
+                          what-if reasoning
+                      s
+               uer i e                        design1
+             q
+     a &                                       perf1
+  a t
+d
+                                               cost1
+                c e
+              an
+        r   m
+    rfo
+pe
+
+
+              et                              design2
+            g
+        bu d
+                      $ $$   SLA               perf2
+                                               cost2
+
+
+                          what-if reasoning
+AUTO DESIGN
+  Rob Tarjan, Turing Award 1986
+  “IS THERE A CALCULUS OF DATA STRUCTURES
+
+
+AUTO DESIGN
+  by which one can choose the appropriate representation
+      and techniques for a given problem?” (SIAM,1978)
+       [P vs NP, average case, constant factors vs asymptotic, low bounds]
+    IS THERE A CALCULUS OF SYSTEMS?
+
+
+
+
+Rob Tarjan, Turing Award 1986
+“IS THERE A CALCULUS OF DATA STRUCTURES
+by which one can choose the appropriate representation
+    and techniques for a given problem?” (SIAM,1978)
+     [P vs NP, average case, constant factors vs asymptotic, low bounds]
+the grammar of systems design
+                                      the grammar of systems design
+
+                                    action is for nothing
+                                                           holy
+                                 hope    the          most        of
+                                               fear          form
+                                      am            free
+                                           ultimate      I    theory
+
+
+
+
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+                                      I hope for nothing
+                                         I fear nothing
+                                            I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+                                      I hope for nothing
+                                         I fear nothing
+alphabet                                    I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+                                      I hope for nothing
+  words
+                                         I fear nothing
+alphabet                                    I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+grammar/
+sentences
+                                      I hope for nothing
+  words
+                                         I fear nothing
+alphabet                                    I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+grammar/
+sentences
+                                      I hope for nothing
+  words
+                                         I fear nothing
+alphabet          principles
+                                            I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+grammar/
+sentences
+                                      I hope for nothing
+  words        data structures
+                                         I fear nothing
+alphabet          principles
+                                            I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+grammar/
+sentences        interactions
+                                      I hope for nothing
+  words        data structures
+                                         I fear nothing
+alphabet          principles
+                                            I am free
+Nikos Kazantzakis, philosopher
+                                  the grammar of systems design
+
+                                 action is
+                                                          holy
+                                      the            most        of
+                                                            form
+                                       ultimate              theory
+
+
+
+
+grammar/
+                                            NEW
+sentences        interactions
+                                      I hope for nothing
+  words        data structures
+                                         I fear nothing
+alphabet          principles
+                                            I am free
+Nikos Kazantzakis, philosopher
+                                      the grammar of systems design
+
+                                     action is
+                                                              holy
+                                          the            most        of
+                                                                form
+                                           ultimate              theory
+                                    which are “all”
+                                  possible systems
+                                 we may ever invent?
+
+
+grammar/
+sentences        interactions
+                                          I hope for nothing
+  words        data structures
+                                             I fear nothing
+alphabet          principles
+                                                I am free
+Nikos Kazantzakis, philosopher
+               PERFORMANCE
+DESIGN SPACE                 FIND BEST DESIGN
+                ESTIMATION
+PERPETUAL                         gn s
+                               si
+                             De
+
+
+
+
+LEARNING                                          Training
+                                                  Data
+
+
+
+
+POSSIBLE
+
+               PERFORMANCE
+DESIGN SPACE                             FIND BEST DESIGN
+                ESTIMATION
+SIGMOD’18
+
+MORE DATA STRUCTURES                                      >10 48
+
+
+
+THAN STARS IN THE SKY
+(The most fundamental component of computer science/AI)
+
+
+
+
+                          10 24
+
+  5x10 3
+
+
+
+
+Literature               Stars                  Possibilities We Discovered
+     10-100X FASTER SYSTEMS
+Limousine: NoSQL KV-Store               Image Calculator: Image AI          TorchTitan with PyTorch@META
+ Agents’ context management,
+                                       Storage for Training and Infenence    Large Model Training Algorithms
+but also all kinds of big data infra
+
+
+
+
+ SIGMOD’24, VLDB’22                     SIGMOD’24, CIDR‘25                    MLsys 2023, ICLR’25
+Now doing the same with RAG, Agents, LLMs, …
+Stratos Idreos
+

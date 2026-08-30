@@ -1,0 +1,969 @@
+Towards
+Self-designing RAG Systems
+
+
+Qitong Wang, qitong@seas.harvard.edu
+CS265. February 5, 2026
+
+                                       1
+Fast
+       Vector search
+              Multi-vector search
+                                                  vector search                vector search
+                       Rerank
+
+                            LLM
+
+                                                  rerank                       rerank
+                             Accurate
+
+
+
+
+   • Data systems vs. RAG systems
+       Storage, compute
+
+   • System designs                                               This class
+       Resource allocation, pipelining, configuration
+
+   • Self-designing RAG systems
+                                                                              data size          store - access
+                                                                             data size          store - access
+                                                                               10s/100s         paper - just look at it!
+Storage & Compute in Data Systems
+
+
+
+
+                                                                              10s/100s         paper - just look at it!
+                                                                                 data collection is the key
+                                                                                data collection is the key
+
+                                                                                 K/M                files - shell/excel
+                                                                                K/M              files - shell/excel
+                                                                    data      learn a bit how computers work
+                                                                    data     learn a bit how computers work
+                                      star(id, name, distance, density, …)
+                                      star(id, name, distance, density, …)        B                   files - custom
+                                                                                 B                 files - custom
+                                      [1, star1, x1, y1, …]
+                                      [1, star1, x1, y1, …]
+                                      [2, star2, x2, y2, …]
+                                                                              need serious programming skills
+                                                                             need serious programming skills
+                                      [2, star2, x2, y2, …]
+                                      [3, star3, x3, y3, …]
+                                      [3, star3, x3, y3, …]
+                                      [4, star4, x4, y4, …]
+                                      [4, star4, x4, y4, …]                       T             data sys. - declarative
+                                      …
+                                      …
+                                                                                 T             data sys. - declarative
+
+                                                                                       data-drivenanalysis
+                                                                                      data-driven  analysis
+
+                                    CS165, Fall 2025
+                                    CS165, Fall 2025
+                                    Stratos Idreos
+                                    Stratos Idreos
+                                                                                  query   x<5
+                                                                                  data size          store - access
+Storage & Compute in Data Systems
+
+
+
+
+                                                                                    10s/100s        paper - just look at it!
+                                                                  scan
+                                                                                      data collection is the key
+                                                             5 10 6 4 12                                 4
+                                    (size=120 bytes)                                  K/M              files - shell/excel
+                                    memory level N
+                                                                        data       learn a bit how computers work
+                                    memory level N-1
+                                         star(id, name, distance, density, …)
+                                                                                       B                files - custom
+                                         [1, star1, x1, y1, …]
+                                                                                  need serious programming skills
+                                         [2, star2, x2, y2, …] 5 10 6 4 12         28976               7 11 3 9 6              …
+                                         [3, star3, x3, y3, …]
+                                         [4, star4, x4, y4, …]
+                                                                                       T            data sys. - declarative
+                                         …                                      page size: 5x8 bytes
+                                                                                           data-driven analysis
+
+                                       CS165, Fall 2025
+                                       Stratos Idreos
+                                                                             cache miss: looking for something
+                                                         CPU                   data  size
+                                                                                       is not in the store
+                                                                                                     cache - access
+
+
+
+                                       faster
+                                                                                 which
+Storage & Compute in Data Systems
+
+
+
+
+                                                                                10s/100s           paper - just look at it!
+                                                       registers                                                              cpu
+                                                                                                      speed
+                                                                                 data collection is the key
+                                                                               ~1ns
+                                                 on chip cache
+                                                                                   K/M                files - shell/excel     mem
+                                                                              ~10ns
+                                                                     data      learn a bit how computers work time
+                                                 on board cache      SRAM
+                                      star(id, name, distance, density, …)                 memory wall
+                                                                                    B                  files - custom
+                                                       memory       DRAM     ~100ns
+                                      [1, star1, x1, y1, …]
+                                      [2, star2, x2, y2, …]
+                                                                              need serious programming skills
+                                      [3, star3, x3, y3, …]
+                                                      disk
+                                      [4, star4, x4, y4, …]
+                                       cheaper
+
+
+
+
+                                                                             memory
+                                                                                 T miss: looking   forsys.
+                                                                                                 data  something
+                                                                                                           - declarative
+                                      …
+                                                                                  which is not in memory
+                                                                                        data-driven analysis
+
+                                    CS165, Fall 2025
+                                    Stratos Idreos
+                                                        CPU
+                                                                            cache miss: looking for something
+                                                                              data  size
+                                                                                      is not in the store
+                                                                                                    cache - access           ?
+                                      faster
+                                                                                which
+Storage & Compute in RAG Systems
+
+
+
+
+                                                                               10s/100s           paper - just look at it!
+                                                      registers                                                              cpu
+                                                                                                     speed
+                                                                                data collection is the key
+                                                                              ~1ns
+                                                on chip cache
+                                                                                  vector
+                                                                                  K/M    search      files - shell/excel     mem
+                                                                             ~10ns
+                                                                    data      learn a bit how computers work time
+                                                on board cache      SRAM
+                                     star(id, name, distance, density, …)         rerank memory wall
+                                                                                   B                  files - custom
+                                                      memory       DRAM     ~100ns
+                                     [1, star1, x1, y1, …]
+                                     [2, star2, x2, y2, …]
+                                                                             need serious programming skills
+                                     [3, star3, x3, y3, …]
+                                                     disk
+                                     [4, star4, x4, y4, …]
+                                      cheaper
+
+
+
+
+                                                                            memory
+                                                                                T miss: looking   forsys.
+                                                                                                data  something
+                                                                                                          - declarative
+                                     …
+                                                                                 which is not in memory
+                                                                                       data-driven analysis
+
+                                   CS165, Fall 2025
+                                   Stratos Idreos
+How LLM works
+
+
+
+
+                Ashish Vaswani, et al. Attention is All you Need. NIPS 2017
+                                                                                  A semantic vector
+
+
+
+
+                                                    Input-Input Layer1
+                            It       It
+                           is
+                           in
+                                 K   Q
+                                     is
+                                     in
+                                                                         [5.4, 1.7, 4.7, 3.4, …, 5.3, 5.1, 8.1, 6.9]
+                        this         this
+                       spirit        spirit
+                       that          that
+                           a         a
+                    majority         majority
+                           of        of
+                   American          American
+How LLM works
+
+
+
+
+                governments          governments
+                       have          have
+                     passed          passed
+                        new          new
+                        laws         laws
+                       since         since
+                       2009          2009
+                     making          making
+                        the          the
+                 registration        registration
+                          or         or
+                      voting         voting
+                    process          process
+                       more          more
+                     difficult       difficult
+                             .       .
+                     <EOS>           <EOS>
+                      <pad>          <pad>
+                      <pad>          <pad>
+                                                                                               A semantic vector
+
+
+
+
+                                                        Input-Input Layer1
+                            It           It
+                           is
+                           in
+                                 K       Q
+                                         is
+                                         in
+                                                                                      [5.4, 1.7, 4.7, 3.4, …, 5.3, 5.1, 8.1, 6.9]
+                        this             this
+                       spirit            spirit
+                       that              that
+                           a             a
+                    majority             majority
+                           of            of
+                   American              American
+How LLM works
+
+
+
+
+                                                                                 O′
+                governments              governments
+                       have
+                     passed
+                                 K       Q
+                                         have
+                                         passed
+                                                             O                                 V            V′
+                                                  ⊤
+                        new              new
+                        laws             laws
+                       since             since
+                       2009              2009
+
+
+                                     ×            =                          →           ×           =
+                     making              making
+                        the              the
+                 registration            registration
+                          or             or
+                      voting             voting
+                    process              process
+                       more              more
+                     difficult           difficult
+                             .           .
+                     <EOS>               <EOS>
+                      <pad>              <pad>
+                      <pad>              <pad>
+                                                                                  cache miss: looking for something
+                                                           GPU
+                                                           CPU
+
+
+
+
+                                         faster
+                                                                                      which is not in the cache
+                                                                                                                                              query x<5
+
+
+
+                                                                                                                                                                                         ?
+                                                          registers
+
+
+
+
+                                                                        Input-Input Layer1
+                                                                                                                        cpu
+                                                                                                         speed
+                            It                     It                                    ~1ns                                      scan
+                                                      on chip cache
+                           is
+                           in
+                                 K           Q
+                                             in
+                                                   is
+                                                                                       ~10ns
+                                                                                                                             5 10 6 4 12
+                                                                                                           (size=120 bytes)mem
+                                                                                                           memory level N
+                                                                                                                                                                   4
+
+
+                                                     on board cache   SRAM                                                  time
+                        this                       this
+                                                                                                memorymemory
+                                                                                                       wall level N-1
+                       spirit
+                       that
+                                                   spirit memory
+                                                   that
+                                                                      DRAM           ~100ns
+                                                                                                                              5 10 6 4 12      28976           7 11 3 9 6
+                                                                                                                                                                                     Compared to
+                                                                                                                                                                                     data systems?
+                                                                                                                                                                            …
+                           a                       a      disk                                                                              page size: 5x8 bytes
+
+
+
+
+                                         cheaper
+                                                                                   memory miss: looking for something
+                    majority                       majority                             which is not in memory
+                           of                      of
+                   American                        American
+How LLM works
+
+
+
+
+                                                                                                                                   O′
+                governments                        governments
+                       have
+                     passed
+                                 K            Q
+                                              have
+                                                   passed
+                                                                             O                                                                                     V            V′
+                                                          ⊤
+                        new                        new
+                        laws                       laws
+                       since                       since
+                       2009                        2009
+
+
+                                     ×                      =                                         →                                              ×                      =
+                     making                        making
+                        the                        the
+                 registration                      registration
+                          or                       or
+                      voting                       voting
+                    process                        process
+                       more                        more
+                     difficult                     difficult
+                             .                     .
+                     <EOS>                         <EOS>
+                      <pad>                        <pad>
+                      <pad>                        <pad>
+                                                                                  cache miss: looking for something
+                                                           GPU
+                                                           CPU
+
+
+
+
+                                         faster
+                                                                                      which is not in the cache
+                                                                                                                                              query x<5
+
+
+
+                                                                                                                                                                                         ?
+                                                          registers
+
+
+
+
+                                                                        Input-Input Layer1
+                                                                                                                        cpu
+                                                                                                         speed
+                            It                     It                                    ~1ns                                      scan
+                                                      on chip cache
+                           is
+                           in
+                                 K           Q
+                                             in
+                                                   is
+                                                                                       ~10ns
+                                                                                                                             5 10 6 4 12
+                                                                                                           (size=120 bytes)mem
+                                                                                                           memory level N
+                                                                                                                                                                   4
+
+
+                                                     on board cache   SRAM                                                  time
+                        this                       this
+                                                                                                memorymemory
+                                                                                                       wall level N-1
+                       spirit
+                       that
+                                                   spirit memory
+                                                   that
+                                                                      DRAM           ~100ns
+                                                                                                                              5 10 6 4 12      28976           7 11 3 9 6
+                                                                                                                                                                                     Compared to
+                                                                                                                                                                                     data systems?
+                                                                                                                                                                            …
+                           a                       a      disk                                                                              page size: 5x8 bytes
+
+
+
+
+                                         cheaper
+                                                                                   memory miss: looking for something
+                    majority                       majority                             which is not in memory
+                           of                      of
+                   American                        American
+How LLM works
+
+
+
+
+                                                                                                                                   O′
+                governments                        governments
+                       have
+                     passed
+                                 K            Q
+                                              have
+                                                   passed
+                                                                             O                                                                                     V            V′
+                                                          ⊤
+                        new                        new
+                        laws                       laws
+                       since                       since
+                       2009                        2009
+
+
+                                     ×                      =                                         →                                              ×                      =
+                     making                        making
+                        the                        the
+                 registration                      registration
+                          or                       or
+                      voting                       voting
+                    process                        process
+                       more                        more
+                     difficult                     difficult
+                             .                     .
+                     <EOS>                         <EOS>
+                      <pad>                        <pad>
+                      <pad>                        <pad>
+                                                                                          cache miss: looking for something
+                                                           GPU
+                                                           CPU
+
+
+
+
+                                         faster
+                                                                                              which is not in the cache
+                                                                                                                                                                              query x<5
+
+
+
+                                                                                                                                                                                                                        ?
+                                                          registers
+
+
+
+
+                                                                                Input-Input Layer1
+                                                                                                                                                    cpu
+                                                                                                                          speed
+                            It                     It                                            ~1ns                                                           scan
+                                                      on chip cache
+                           is
+                           in
+                                 K           Q
+                                             in
+                                                   is                           F LASH ATTENTION
+                                                                      Memory-Efficient
+                                                                                                   : Fast
+                                                                                             (size=120
+                                                                             ~10ns Exact Attention
+                                                                                                          and 5 10 6 4 12
+                                                                                                            mem
+                                                                                                       bytes)
+                                                                                                      withNIO-Awareness
+                                                                                             memory level
+                                                                                                                                                                                                  4
+
+
+                                                     on board cache    SRAM                                                                          time
+                        this                       this
+                                                                                                          memorymemory
+                                                                                                                 wall level N-1
+                       spirit
+                       that
+                                                   spirit memory
+                                                   that
+                                                                      DRAM
+                                                                                      Tri Dao† , Daniel Y. Fu † , Stefano Ermon † , Atri Rudra ‡ , Christopher Ré †
+                                                                                        ~100ns   † Department of Computer Science, Stanford University
+                                                                                                                                                        5 10 SUNY
+                                                                                                                                                               6 4 12         28976           7 11 3 9 6
+                                                                                                                                                                                                                    Compared to
+                                                                                                                                                                                                                    data systems?
+                                                                                   ‡ Department of Computer Science and Engineering, University at Buffalo,                                                …
+                                                                          {trid,danfu}@stanford.edu, ermon@stanford.edu, atri@buffalo.edu, chrismre@cs.stanford.edu
+                           a                       a      disk                                                                                                             page size: 5x8 bytes
+
+
+
+
+                                         cheaper
+                                                                                           memory miss: looking for something
+                    majority                       majority                                                    Abstract
+                                                                                                which is not in memory
+                           of                      of                           Transformers are slow and memory-hungry on long sequences, since the time and
+                                                                                memory complexity of self-attention are quadratic in sequence length. Approximate
+                                                                                attention methods have attempted to address this problem by trading off model qual-
+                   American                        American
+How LLM works
+
+
+
+
+                                                                                ity to reduce the compute complexity, but often do not achieve wall-clock speedup.
+                                                                                We argue that a missing principle is making attention algorithms IO-aware—
+
+
+                                                                                                                                                              O′
+                governments                        governments
+
+                                                                                                                                                                                                               V′
+                                                                                accounting for reads and writes between levels of GPU memory. We propose
+
+
+                                 K            Q                                      O                                                                                                            V
+                                                                                F LASH ATTENTION, an IO-aware exact attention algorithm that uses tiling to reduce
+                       have                   have                              the number of memory reads/writes between GPU high bandwidth memory (HBM)
+                                                                                and GPU on-chip SRAM. We analyze the IO complexity of F LASH ATTENTION,
+                                                                                showing that it requires fewer HBM accesses than standard attention, and is optimal
+                     passed                        passed                       for a range of SRAM sizes. We also extend F LASH ATTENTION to block-sparse at-
+                                                                                tention, yielding an approximate attention algorithm that is faster than any existing
+
+
+
+                                                          ⊤
+                        new                        new                          approximate attention method. F LASH ATTENTION trains Transformers faster than
+                                                                                existing baselines: 15% end-to-end wall-clock speedup on BERT-large (seq. length
+                                                                                512) compared to the MLPerf 1.1 training speed record, 3× speedup on GPT-2 (seq.
+                        laws                       laws                         length 1K), and 2.4× speedup on long-range arena (seq. length 1K-4K). F LASH AT-
+                                                                                TENTION and block-sparse F LASH ATTENTION enable longer context in Transform-
+                       since                       since                        ers, yielding higher quality models (0.7 better perplexity on GPT-2 and 6.4 points
+                                                                                of lift on long-document classification) and entirely new capabilities: the first Trans-
+                       2009                        2009                         formers to achieve better-than-chance performance on the Path-X challenge (seq.
+                                                                                length 16K, 61.4% accuracy) and Path-256 (seq. length 64K, 63.1% accuracy).
+
+
+
+                                     ×                      =                                                        →                                                              ×                      =
+                     making                        making             1     Introduction
+                        the                        the                Transformer models [86] have emerged as the most widely used architecture in applications such
+                                                                      as natural language processing and image classification. Transformers have grown larger [5] and
+                 registration                      registration       deeper [87], but equipping them with longer context remains difficult [83], since the self-attention
+                                                                      module at their heart has time and memory complexity quadratic in sequence length. An important
+                                                                      question is whether making attention faster and more memory-efficient can help Transformer models
+                          or                       or                 address their runtime and memory challenges for long sequences.
+                                                                      Many approximate attention methods have aimed to reduce the compute and memory requirements
+                      voting                       voting             of attention. These methods range from sparse-approximation [53, 77] to low-rank approxima-
+                                                                      tion [13, 52, 88], and their combinations [3, 9, 96]. Although these methods reduce the compute
+                    process                        process            requirements to linear or near-linear in sequence length, many of them do not display wall-clock
+                                                                      speedup against standard attention and have not gained wide adoption. One main reason is that
+                                                                      they focus on FLOP reduction (which may not correlate with wall-clock speed) and tend to ignore
+                       more                        more               overheads from memory access (IO).
+
+                     difficult                     difficult          In this paper, we argue that a missing principle is making attention algorithms IO-aware [1]—that is,
+                                                                      carefully accounting for reads and writes to different levels of fast and slow memory (e.g., between
+                                                                      fast GPU on-chip SRAM and relatively slow GPU high bandwidth memory, or HBM [47], Figure 1
+                             .                     .
+                                                                      36th Conference on Neural Information Processing Systems (NeurIPS 2022).
+                     <EOS>                         <EOS>
+                      <pad>                        <pad>
+                      <pad>                        <pad>
+              compute / data = x ops / y bytes := arithmetic intensity
+                                                                         compute is
+                                                                         the bottleneck
+
+
+
+
+data movement (I/O) is         The roofline model
+the bottleneck
+            vector search
+
+
+
+            rerank
+
+
+
+
+                       +
+
+GPU   CPU                   GPU
+                Resource allocation
+
+
+
+
+            +
+
+GPU   CPU             GPU
+                                                                                                                                                                                                   Resource allocation
+                                                                                                                                                             RAGO: Systematic Performance Optimization
+       TorchSim: High Fidelity Runtime and Memory Estimation for Distributed                                                                                 for Retrieval-Augmented Generation Serving
+                                     Training                                                                                                            Wenqi Jiang∗                                    Suvinay Subramanian                                                 Cat Graves
+                                                                                                                                                      ETH Zurich                                                Google                                             Google DeepMind
+                                                                                                                                                   Zurich, Switzerland                                   Mountain View, CA, USA                                 Mountain View, CA, USA
+                                                                                                                                                 wenqi.jiang@inf.ethz.ch                                  suvinay@google.com                                     catgraves@google.com
+         Sanket Purandare 1 2 Emma Yang 1 Andrew Zhao 1 Qitong Wang 1 Wei Feng 2 Alban Desmaison 2
+                   Andrew Gu 2 Tianyu Liu 2 Less Wright 2 Gokul Nadathur 2 Stratos Idreos 1                                                            Gustavo Alonso                                    Amir Yazdanbakhsh†                                             Vidushi Dadu†
+                                                                                                                                                          ETH Zurich                                        Google DeepMind                                               Google
+                                                                                                                                                       Zurich, Switzerland                               Mountain View, CA, USA                                       Sunnyvale, USA
+                            Abstract                              plex. Achieving state-of-the-art performance at this scale                           alonso@inf.ethz.ch                                 ayazdan@google.com                                       vidushid@google.com
+       Large AI models unlock powerful applications               demands extreme computational investment. For example,
+                                                                  Llama 3.1 used 405 billion parameters and 15 trillion to-        Abstract                                                                                                                                                        LLM-only System
+
+       but are costly and complex to train, primarily due                                                                          Retrieval-augmented generation (RAG) is emerging as a popular                                        User question:                                         Thomas invented the
+
+       to the challenge of configuring distributed train-         kens, consuming 30.84 million GPU hours across 16,000                                                                                                                                       Generative LLM
+                                                                                                                                                                                                                                                                                               Internet, …
+
+                                                                  H100s (Dubey et al., 2024), while Google’s PaLM used 540         approach for reliable LLM serving. However, e!cient RAG serving                               What are Thomas Edison's
+                                                                                                                                                                                                                                 most notable inventions?
+       ing across GPU clusters. This involves selecting                                                                            remains an open challenge due to the rapid emergence of many RAG                                                                                            Thomas invented
+
+       the right combination of techniques based on the           billion parameters and 0.8 trillion tokens, requiring 9.4 mil-                                                                                                                              Generative LLM
+                                                                                                                                                                                                                                                                                               phonograph, motion
+                                                                                                                                   variants and the substantial di"erences in workload characteristics                                                                                         picture camera, …
+                                                                  lion TPU hours on 6,144 TPUv4 chips (Chowdhery et al.,                                                                                                                             Query   Retrieval results
+       model, data, hardware, and performance objec-                                                                               across them. This paper makes three fundamental contributions to
+       tives. In practice, teams often rely on trial and          2023). These efforts highlight not only the capabilities of      advancing RAG serving. First, we introduce RAGSchema, a structured
+                                                                                                                                                                                                                                   Knowledge database
+                                                                                                                                                                                                                                                             These inventions, including the        Retrieval-
+                                                                                                                                                                                                                                                                                                    Augmented
+                                                                                                                                                                                                                                            texts            phonograph, the motion picture
+       error, leading to high compute costs, cloud spend,         modern models but also the prohibitive resource demands,         abstraction that captures the wide range of RAG algorithms, serving                                     vectors           camera, and the electric …             Generation
+
+
+       and wasted time, without guarantees of success or          making training cost a major bottleneck for scalable AI. Dis-    as a foundation for performance optimization. Second, we analyze
+       optimality. We present T ORCH S IM, a simulator            tributed training is essential for scaling, but no universally   several representative RAG workloads with distinct RAGSchema,                                 Figure 1: LLM-only system (top) versus RAG (bottom).
+                                                                  optimal strategy exists. For instance, Llama 3.1 employed        revealing signi#cant performance variability across these workloads.
+       that eliminates this burden by accurately predict-
+                                                                  4D parallelism, 8-way Tensor, 16-way Context, 16-way             Third, to address this variability and meet diverse performance
+       ing whether a configuration will succeed (i.e., stay
+                                                                  Pipeline, and 8-way Fully Sharded Data Parallelism, while        requirements, we propose RAGO (Retrieval-Augmented Generation
+       within memory limits) and how long it will take                                                                             Optimizer), a system optimization framework for e!cient RAG                               1   Introduction
+       to run, without requiring actual execution or ac-          PaLM used 3D parallelism, 12-way Tensor, 256-way Fully
+                                                                  Sharded Data, and 2-way Data Parallelism, each carefully         serving. RAGO achieves up to a 2ˆ increase in QPS per chip and                            The rapid adoption of Large Language Models (LLMs) across
+       cess to the target hardware. Users simply input                                                                             a 55% reduction in time-to-#rst-token latency compared to RAG                             diverse applications — such as question answering [23, 26, 29], code
+       candidate configurations and choose the best suc-          tailored to model architecture and hardware constraints.
+                                                                                                                                   systems built on LLM-system extensions.                                                   generation [73, 76, 90], and scienti#c discoveries [20, 67, 107] —
+       cessful one, such as the fastest, avoiding costly          Scaling LLMs requires carefully combining parallelism                                                                                                      showcases their profound impact on automating knowledge-based
+                                                                                                                                   CCS Concepts
+       and uncertain tuning. T ORCH S IM combines an-             strategies and system-level optimizations. This includes                                                                                                   tasks. Despite these capabilities, LLM systems, when deployed in
+                                                                                                                                   • Information systems Ñ Information retrieval; • Com-                                     isolation (aka LLM-only systems), face substantial challenges, such
+       alytical and learned models to estimate operator-          Data Parallelism (Li et al., 2020; Rajbhandari et al., 2020;     puter systems organization Ñ Architectures; • Computing                                   as data staleness [63, 71], a propensity to hallucinate (generating
+       level runtimes and employs a GPU execution sim-            Zhang et al., 2022a; Zhao et al., 2023), Tensor Paral-           methodologies Ñ Natural language processing; • Hardware
+       ulator to capture the intricacies of multi-stream                                                                                                                                                                     factually incorrect or nonsensical information), and limited, often
+                                                                  lelism(Narayanan et al., 2021; Wang et al., 2022; Kor-           Ñ Emerging simulation.                                                                    rigid model knowledge [46, 71, 74]. These challenges hinder the
+       parallelism and hardware behavior. Evaluated on            thikanti et al., 2023), Context Parallelism (Liu et al., 2023;                                                                                             reliability and adaptability of LLM-only systems, especially in
+       both language and vision models across A100 and            Liu & Abbeel, 2024; NVIDIA, 2023; Fang & Zhao, 2024),            Keywords                                                                                  applications that demand high factual accuracy [31, 42, 57, 109].
+       H100 GPUs, up to 128-GPU scale, with multi-                and Pipeline Parallelism (Huang et al., 2019b; Narayanan         Retrieval-Augmented Generation, Computer System, Computer                                    Retrieval-Augmented Generation (RAG) has emerged as one
+       dimensional parallelism and interconnects like             et al., 2019; 2021; Tang et al., 2024b), often combined with     Architecture, Large Language Model, Performance Optimization                              powerful solution to address the common pitfalls of LLM-only
+       InfiniBand and RoCE, T ORCH S IM achieves over             techniques like activation recomputation (Chen et al., 2016;     ACM Reference Format:                                                                     systems for knowledge-intensive tasks [22, 63, 70, 99, 112]. By
+
+
+
+
+                                                                                                                                                       +
+       90% accuracy in runtime prediction and 99% in              Korthikanti et al., 2023; He & Yu, 2023; Purandare et al.,       Wenqi Jiang, Suvinay Subramanian, Cat Graves, Gustavo Alonso, Amir                        retrieving information from external databases and appending it
+       memory estimation. It is open-sourced as an ex-            2023), mixed precision (Micikevicius et al., 2018; 2022),        Yazdanbakhsh, and Vidushi Dadu. 2025. RAGO: Systematic Performance                        to prompts (Figure 1), RAG enhances the credibility, timeliness, and
+       tension to PyTorch, with results demonstrated on           and deep learning compilers (Bradbury et al., 2018; Yu et al.,   Optimization for Retrieval-Augmented Generation Serving. In Proceedings                   contextually rich nature of LLM-generated responses. Leveraging
+       T ORCH T ITAN.                                             2023; Li et al., 2024; Ansel et al., 2024b) to maximize ef-
+                                                                                                                                   of the 52nd Annual International Symposium on Computer Architecture (ISCA                 the generative prowess of LLMs alongside external knowledge
+                                                                                                                                   ’25), June 21–25, 2025, Tokyo, Japan. ACM, New York, NY, USA, 16 pages.                   sources, RAG not only achieves comparable quality with smaller
+                                                                  ficiency. Moreover, identifying an effective training recipe     https://doi.org/10.1145/3695053.3731093                                                   models [22, 99, 112] but also simpli#es the process of updating
+                                                                  is highly context-specific, requiring expert intuition and       ∗ Work done while at Google.                                                              knowledge, mitigating the extent of additional model training, which
+1. Motivation and Introduction                                    repeated experimentation across a large space of configura-      † Equal advising.
+                                                                                                                                                                                                                             is often prohibitively expensive [63, 70]. These advantages have
+                                                                  tions involving parallelism dimensions, sharding strategies,                                                                                               established RAG as the industry standard for knowledge-intensive
+Large AI models power a wide range of applications, but                                                                            Artifact: https://github.com/google/rago.
+                                                                  memory trade-offs, and precision modes (Eisenman et al.,                                                                                                   applications, with notable examples including Google’s REALM [39]
+their training has become increasingly expensive and com-
+                                                                  2022; Wang et al., 2023; Gupta et al., 2024; Maurya et al.,                                                                                                and RETRO [22], Meta’s MARGE [70], Microsoft’s GraphRAG [30],
+   1
+    Harvard University, USA 2 Meta, USA. Correspondence to:       2024; Wan et al., 2024).                                         This work is licensed under a Creative Commons Attribution 4.0 International License.     and NVIDIA’s InstructRETRO [112]. As companies race to integrate
+Sanket Purandare <sanketpurandare@meta.com>.                                                                                       ISCA ’25, Tokyo, Japan                                                                    RAG systems into their production pipelines [28, 84, 97], optimizing
+
+
+               GPU                                                                                 CPU                                                                                                                                    GPU
+                                                                  Even when frameworks support advanced optimizations,             © 2025 Copyright held by the owner/author(s).                                             their performance has become increasingly critical.
+                       nd
+Proceedings of the 42 International Conference on Machine         suboptimal configurations can be extremely costly. For           ACM ISBN 979-8-4007-1261-6/25/06
+                                                                                                                                   https://doi.org/10.1145/3695053.3731093
+Learning, Vancouver, Canada. PMLR 267, 2025. Copyright 2025       instance, LLaMA 3.1 and PaLM consumed 30.84 million
+by the author(s).
+
+                                                              1                                                                                                                                                        974
+                     Pipelining
+                      time
+                                                                                   ?
+                                             parallel execution
+                                                                                       CPU
+
+
+
+
+      instructions
+                        fetch   decode   execute    mem       write
+
+
+                                 fetch   decode    execute    mem          write
+
+
+                                          fetch    decode    execute       mem         write
+
+                                                   …          …            …           …
+
+
+
+
+                                                                       +
+      CS165, Fall 2025
+      Stratos Idreos
+
+
+
+
+GPU                                 CPU                                                        GPU
+                     Pipelining
+                      time
+                                                                                   ?
+                                             parallel execution
+                                                                                       CPU
+
+
+
+
+      instructions
+                        fetch   decode   execute    mem       write
+
+
+                                 fetch   decode    execute    mem          write
+
+
+                                          fetch    decode    execute       mem         write
+
+                                                   …          …            …           …
+
+
+
+
+                                                                       +
+      CS165, Fall 2025
+      Stratos Idreos
+
+
+
+
+GPU                                 CPU                                      ?                 GPU
+checked 10         checked 100     checked 1k       checked 10k
+
+
+
+
+                                                +
+
+             GPU                 CPU                              GPU
+                                                                    (                )
+                                                                     restart (partially)
+                                                                          only if
+                                                                    documents change
+checked 10         checked 100     checked 1k       checked 10k
+
+
+
+
+                                                +
+
+             GPU                 CPU                              GPU
+                                                                    (                )
+                                                                     restart (partially)
+                                                                          only if
+                                                                    documents change
+checked 10         checked 100     checked 1k       checked 10k
+
+
+
+
+                                                +
+
+             GPU                 CPU                              GPU
+                                 AquaPipe: A !ality-Aware Pipeline for Knowledge Retrieval
+
+
+
+                                                                                                                                                                                                                                                        (                )
+                                 and Large Language Models
+                                 RUNJIE YU, Huazhong University of Science and Technology, China
+                                 WEIZHOU HUANG, Huazhong University of Science and Technology, China
+                                 SHUHAN BAI, Huazhong University of Science and Technology, China
+                                 JIAN ZHOU∗ , Huazhong University of Science and Technology, China
+                                 FEI WU∗ , Huazhong University of Science and Technology, China
+                                 The knowledge retrieval methods such as Approximate Nearest Neighbor Search (ANNS) signi!cantly enhance
+                                 the generation quality of Large Language Models (LLMs) by introducing external knowledge, and this method                                                                                                               restart (partially)
+                                 is called Retrieval-augmented generation (RAG). However, due to the rapid growth of data size, ANNS tends
+                                                                                                                                                                                                                                                              only if
+
+
+
+
+                                                                                                                                                                   Downloaded from the ACM Digital Library by Harvard University on April 10, 2025.
+                                 to store large-scale data on disk, which greatly increases the response time of RAG systems. This paper
+                                 presents AquaPipe, which pipelines the execution of disk-based ANNS and the LLM 𝐿𝑀𝑁 𝑂 𝑃𝑄𝑄 phase in an RAG
+                                 system, e"ectively overlapping the latency of knowledge retrieval and model inference to enhance the overall
+                                 performance, while guaranteeing data quality. First, ANNS’s recall-aware prefetching strategy enables the early
+                                                                                                                                                                                                                                                        documents change
+                                 return of partial text with acceptable accuracy so the pre!ll phase can launch before getting the full results.
+
+checked 10         checked 100
+                                 Then, we adaptively choose the remove-after-pre!ll or re-pre!ll strategies based on the LLM cost model to
+                                                          checked 1k                                                                       checked 10k
+                                 e"ectively correct disturbed pipelines caused by wrong early returns. Finally, the pipelined pre!ll dynamically
+                                 changes the granularity of chunk size to balance the overlap e#ciency and GPU e#ciency, adjusting to ANNS
+                                 tasks that converge at di"erent speeds. Our experiments have demonstrated the e"ectiveness of AquaPipe. It
+                                 successfully masks the latency of disk-based ANNS by 56% to 99%, resulting in a 1.3× to 2.6× reduction of the
+                                 response time of the RAG, while the extra recall loss caused by prefetching is limited to approximately 1%.
+                                 CCS Concepts: • Information systems → Nearest-neighbor search; Search engine indexing.
+                                 Additional Key Words and Phrases: Approximate Nearest Neighbor Search, Retrieval-augmented Generation,
+                                 Large Language Models
+                                 ACM Reference Format:
+                                 Runjie Yu, Weizhou Huang, Shuhan Bai, Jian Zhou, and Fei Wu. 2025. AquaPipe: A Quality-Aware Pipeline
+                                 for Knowledge Retrieval and Large Language Models. Proc. ACM Manag. Data 3, 1 (SIGMOD), Article 11
+                                 (January 2025), 26 pages. https://doi.org/10.1145/3709661
+
+                                 1 Introduction
+                                 Large Language Models (LLMs) have demonstrated impressive capabilities in understanding and
+                                 generating human languages. However, due to the limitation of their training datasets, they face
+                                 challenges such as hallucinations [70], outdated knowledge, and untraceable reasoning processes. To
+                                 ∗ Jian Zhou and Fei Wu are co-corresponding authors.
+
+
+
+
+                                                                                                                                +
+                                 Authors’ Contact Information: Runjie Yu, d202381500@hust.edu.cn, Huazhong University of Science and Technology,
+                                 Wuhan, Hubei, China; Weizhou Huang, huangweizhou@hust.edu.cn, Huazhong University of Science and Technology,
+                                 Wuhan, Hubei, China; Shuhan Bai, shuhanbai0329@hust.edu.cn, Huazhong University of Science and Technology, Wuhan,
+                                 Hubei, China; Jian Zhou, jianzhou@hust.edu.cn, Huazhong University of Science and Technology, Wuhan, Hubei, China;
+                                 Fei Wu, wufei@mail.hust.edu.cn, Huazhong University of Science and Technology, Wuhan, Hubei, China.
+
+                                 Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee
+                                 provided that copies are not made or distributed for pro!t or commercial advantage and that copies bear this notice and the
+                                 full citation on the !rst page. Copyrights for components of this work owned by others than the author(s) must be honored.
+                                 Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires
+                                 prior speci!c permission and/or a fee. Request permissions from permissions@acm.org.
+                                 © 2025 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+
+
+             GPU                        CPU
+                                 ACM 2836-6573/2025/1-ART11
+                                 https://doi.org/10.1145/3709661
+                                                                                                                                                                                                                                                      GPU
+                                                               Proc. ACM Manag. Data, Vol. 3, No. 1 (SIGMOD), Article 11. Publication date: January 2025.
+                  ×1M
+      vector search
+
+               ×100
+      rerank
+
+         ×5
+                      ?
+                            +
+
+GPU                   CPU       GPU
+ What is                               What is Lorem
+PyTorch?                                 Ipsum?
+
+                             ×1M                                    ×1M
+                 vector search                          vector search
+
+                          ×100                                   ×150
+                 rerank                                 rerank
+
+                    ×5                                       ×3
+
+
+
+
+                                           +
+
+           GPU                   CPU                   GPU
+ What is                               What is Lorem
+PyTorch?                                 Ipsum?
+
+                             ×1M                                    ×1M
+                 vector search                          vector search
+
+                          ×100                                   ×150
+                 rerank                                 rerank
+
+                    ×5                                       ×3
+
+
+
+
+                                           +
+             This is an on-going work in the lab,
+              and you are welcome to join us!
+           GPU                   CPU                   GPU
+                       Resource allocation:
+                       adapt to the hardware
+
+vector search
+
+                       Auto-configuration:
+rerank                 adapt to the application
+
+
+
+                       Pipelining, …:
+                       adapt to the performance
+
+
+
+
+  Self-designing RAG systems!
+

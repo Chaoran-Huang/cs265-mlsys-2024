@@ -1,0 +1,696 @@
+     Mirage: A Multi-Level
+   Superoptimizer for Tensor
+          Programs
+    Mengdi Wu, Xinhao Cheng, Shengyu Liu, Chunan Shi, Jianan Ji,
+  Man Kit Ao, Praveen Velliengiri, Xupeng Miao, Oded Padon, Zhihao Jia
+
+
+
+Andy Cheng, Alexander Ingare, Egil Rolstad, Arya Tschand
+Background & Motivation
+Why Fast Kernels Matter
+●   LLM inference/training bottlenecked by GPU kernel performance
+●   A handful of ops dominate compute: attention, matmuls, normalization
+Why Fast Kernels Matter
+●   LLM inference/training bottlenecked by GPU kernel performance
+●   A handful of ops dominate compute: attention, matmuls, normalization
+●   Big gap between peak GPU throughput and what frameworks actually
+    achieve
+Why Fast Kernels Matter
+●   LLM inference/training bottlenecked by GPU kernel performance
+●   A handful of ops dominate compute: attention, matmuls, normalization
+●   Big gap between peak GPU throughput and what frameworks actually
+    achieve
+●   Causes: memory bandwidth limits, kernel launch overhead, suboptimal data
+    movement across GPU memory levels
+GPU Compute + Memory Hierarchy
+GPU Compute + Memory Hierarchy
+
+●   Thread blocks → execute on streaming multiprocessors, use shared
+    memory (fast)
+●   Threads → use per-thread register files (fastest)
+GPU Compute + Memory Hierarchy
+GPU Compute + Memory Hierarchy
+
+●   Thread blocks → execute on streaming multiprocessors, use shared
+    memory (fast)
+●   Threads → use per-thread register files (fastest)
+●   Grid → many thread blocks in parallel
+GPU Compute + Memory Hierarchy
+GPU Compute + Memory Hierarchy
+
+●   Thread blocks → execute on streaming multiprocessors, use shared
+    memory (fast)
+●   Threads → use per-thread register files (fastest)
+●   Grid → many thread blocks in parallel
+●   Device memory access is orders of magnitude more expensive than
+    shared/register
+●   Kernels → execute on full GPU, read/write device memory (slowest)
+●   Good optimizations need to reason about all three levels together
+What granularity does prior work optimize at
+●   Schedule optimizers (Halide, TVM, Ansor): fix the algorithm, search for how
+    to execute it — can't change the math
+What granularity does prior work optimize at
+●   Schedule optimizers (Halide, TVM, Ansor): fix the algorithm, search for how
+    to execute it — can't change the math
+●   Algebraic optimizers (TASO, PET, EINNET): transform the math, but treat
+    kernels as black boxes — can't change internal kernel structure
+What granularity does prior work optimize at
+●   Schedule optimizers (Halide, TVM, Ansor): fix the algorithm, search for how
+    to execute it — can't change the math
+●   Algebraic optimizers (TASO, PET, EINNET): transform the math, but treat
+    kernels as black boxes — can't change internal kernel structure
+●   Neither can introduce entirely new custom kernels
+●   Consequence: optimizations requiring coordinated changes across
+    kernel/block/thread levels must be hand-written
+Motivating Example - Flash Attention
+●   Naive attention: separate kernels for Q×K, softmax, ×V → large intermediates written to
+    device memory
+Motivating Example - Flash Attention
+●   Naive attention: separate kernels for Q×K, softmax, ×V → large intermediates written to
+    device memory
+●   FlashAttention (hand-designed): reorders softmax decomposition, tiles across thread
+    blocks, keeps intermediates in shared memory, fuses into one kernel
+●   Requires algebraic rewrites + schedule changes + new custom kernel design
+    simultaneously
+●   No existing automated framework can discover this
+Mirage Baselines
+●   PyTorch: cuDNN/cuBLAS with manual dispatch rules — the standard
+    baseline (KernelBench style)
+●   TensorRT / TensorRT-LLM: NVIDIA's inference optimizer, hand-tuned
+    kernels for attention etc.
+●   Triton: schedule-based compiler, Python-like DSL → optimized GPU code
+    (far from the hardware so performance is capped)
+●   FlashAttention / FlashDecoding: expert-designed custom kernels for
+    attention (prefill vs. incremental decoding) — expert-optimized gold standard
+Looking forward
+Can LLMs write superhuman kernels? We’re close
+Looking forward
+Can LLMs write superhuman kernels? We’re close
+
+
+
+Can LLMs discover mathematical improvements for kernels? Further away
+Looking forward
+Can LLMs write superhuman kernels? We’re close
+
+
+
+Can LLMs discover mathematical improvements for kernels? Further away
+
+
+
+How can we put these together? This will make a lot of impact
+How to optimize over both
+algorithmic and scheduling
+     transformations?
+Computational graphs
+𝞵-graph
+Demo: Tensor Partitioning
+How to build a 𝞵-graph
+
+
+    X
+
+
+
+    G                      ???           Z
+
+
+
+    W
+
+                                 Graph
+                           Mat
+                    RMS          DefOp
+                           Mul
+                    Norm
+How to build a 𝞵-graph
+
+
+    X
+
+
+
+                           Graph
+    G                       ???
+                           DefOp
+                                           Z
+
+
+
+    W
+
+                                   Graph
+                            Mat
+                    RMS            DefOp
+                            Mul
+                    Norm
+How to build a 𝞵-graph
+
+          gridDim     [128, , ]                                               Graph
+                                                                              DefOp
+
+                      {x <-> row}
+  X      imap/fmap
+
+                                         exp       Square                 Sum
+                                                                          Mul
+ G       imap/fmap    {x <-> column}                                                  Z
+
+                                        valid?         valid?            valid?
+ W                    {x <-> row}
+         imap/fmap
+
+
+
+
+                Sum          exp       Square    Mul            Matmul
+How to prune a 𝞵-graph?
+                    Goal: Compute ZX + ZY
+
+
+
+
+           X                 Y              Z
+How to prune a 𝞵-graph?
+                      Goal: Compute ZX + ZY
+
+
+
+
+           X                   Y                       Z
+
+
+
+
+                  ×
+                                        This insertion is not ok:
+
+                               (X*Y) is not a sub-expression of ZX + ZY
+How to prune a 𝞵-graph?
+                      Goal: Compute ZX + ZY
+
+
+
+
+           X                   Y                       Z
+
+
+
+
+                  +
+                                          This insertion is ok:
+
+                                 (X + Y) is a sub-expression of ZX + ZY
+How to prune a 𝞵-graph?
+                              Goal: Compute ZX + ZY
+
+
+
+
+               X                       Y              Z
+
+
+
+
+                          +
+     This insertion is ok:
+                                           ×
+  Z(X + Y) is equal to ZX + ZY
+How to prune a 𝞵-graph?
+                           Goal: Compute ZX + ZY
+
+
+
+
+           X                        Y                     Z
+                            Pruning rule:
+          Prune current graph A if E(A) is not subexp of E(G),
+                  where G is graph of input program
+
+                       +
+                                        ×
+μGraph Verification
+μGraph Verification: Probabilistic Equivalence
+μGraph Verification: Probabilistic Equivalence
+
+
+
+
+   Randomly
+Generated Inputs
+μGraph Verification: Probabilistic Equivalence
+
+
+
+                                                 Output 1
+
+
+   Randomly
+Generated Inputs
+
+
+
+                                                 Output 2
+μGraph Verification: Probabilistic Equivalence
+
+
+
+                                                 Output 1
+
+
+   Randomly
+Generated Inputs                                 Match?
+
+
+
+                                                 Output 2
+μGraph Verification: Probabilistic Equivalence
+
+
+
+                                                 Output 1
+
+
+   Randomly
+Generated Inputs                                 Match?
+
+
+
+                                                 Output 2
+μGraph Verification: Probabilistic Equivalence
+
+
+                   How many iterations is “enough” to be confident in
+                                     equivalence?                       Output 1
+
+
+   Randomly
+Generated Inputs                                                        Match?
+
+
+
+                                                                        Output 2
+μGraph Verification: Probabilistic Equivalence
+                         Restricting to LAX μGraphs
+
+ Multi-linear ops, division, and (at most one per execution path) exponentiation
+
+
+
+
+                          -                 ×                     √
+             +                                        ex
+                                   ÷
+μGraph Verification: Probabilistic Equivalence
+                  LAX μGraphs can be universally formalized
+
+
+
+
+      -       ×        √
+  +               ex
+          ÷
+μGraph Verification: Probabilistic Equivalence
+                   LAX μGraphs can be universally formalized
+
+  Can calculate probability of random inputs resulting in the same output
+
+
+
+       -       ×        √
+   +               ex
+           ÷
+μGraph Verification: Probabilistic Equivalence
+
+
+                   How many iterations is “enough” to be confident in
+                                     equivalence?                       Output 1
+
+
+   Randomly
+Generated Inputs                                                        Match?
+
+
+
+                                                                        Output 2
+μGraph Verification: Probabilistic Equivalence
+
+
+                   How many iterations is “enough” to be confident in
+                                     equivalence?                       Output 1
+
+
+   Randomly
+Generated Inputs            μGraphs non-equivalent with                 Match?
+                           probability δ for sample count:
+
+                                                                        Output 2
+μGraph Optimizations
+μGraph Optimization: Overall Flow
+
+
+
+
+                                           3. Kernel Memory
+1. Block-Level Fusion
+                                               Planning
+
+
+                        2. Tensor Layout                      4. Thread Operation
+                            Planning                               Scheduling
+μGraph Optimization: Overall Flow
+
+
+
+
+                                           3. Kernel Memory
+1. Block-Level Fusion
+                                               Planning
+
+
+                        2. Tensor Layout                      4. Thread Operation
+                            Planning                               Scheduling
+μGraph Optimization: Block-Level Fusion
+μGraph Optimization: Block-Level Fusion
+
+
+
+              Exp(Exp(Matmul(X)))
+
+
+
+
+                                    Accum(Add(X,Y))
+μGraph Optimization: Block-Level Fusion
+
+
+
+                Exp(Exp(Matmul(X)))
+
+
+
+
+                                      Accum(Add(X,Y))
+
+
+
+
+   Maximize data reuse by fusing trailing (unary) operations
+μGraph Optimization: Overall Flow
+
+
+
+
+                                           3. Kernel Memory
+1. Block-Level Fusion
+                                               Planning
+
+
+                        2. Tensor Layout                      4. Thread Operation
+                            Planning                               Scheduling
+μGraph Optimization: Tensor Layouts
+μGraph Optimization: Tensor Layouts
+μGraph Optimization: Tensor Layouts
+μGraph Optimization: Tensor Layouts
+
+
+      Key Factors:
+
+      Data Transfers
+  Concurrent Accesses
+  Arithmetic Operations
+            …
+μGraph Optimization: Tensor Layouts
+
+
+      Key Factors:
+
+      Data Transfers
+  Concurrent Accesses
+  Arithmetic Operations
+            …
+
+
+
+
+  Increase performance via optimal leading dimension choices
+          (Use an ILP solver to calculate optimal choices)
+μGraph Optimization: Overall Flow
+
+
+
+
+                                           3. Kernel Memory
+1. Block-Level Fusion
+                                               Planning
+
+
+                        2. Tensor Layout                      4. Thread Operation
+                            Planning                               Scheduling
+μGraph Optimization: Memory Planning
+
+
+
+                Tensor A
+
+
+
+                                       3 Chunks of
+                Tensor B
+                                         Memory
+
+
+                Tensor C
+μGraph Optimization: Memory Planning
+
+
+            Shared Psuedo Heap
+
+
+
+                                       2 Chunks of
+                                         Memory
+μGraph Optimization: Memory Planning
+
+
+            Shared Psuedo Heap
+
+
+                 Tensor A
+                                       2 Chunks of
+                                         Memory
+μGraph Optimization: Memory Planning
+
+
+            Shared Psuedo Heap
+
+
+                 Tensor A
+                                       2 Chunks of
+                                         Memory
+                 Tensor B
+μGraph Optimization: Memory Planning
+
+
+            Shared Psuedo Heap
+
+                  Tensor A
+             (No longer in use)        2 Chunks of
+                                         Memory
+                 Tensor B
+μGraph Optimization: Memory Planning
+
+
+            Shared Psuedo Heap
+
+
+                 Tensor C
+                        A
+                                       2 Chunks of
+                                         Memory
+                 Tensor B
+μGraph Optimization: Memory Planning
+
+
+             Shared Psuedo Heap
+
+
+                  Tensor C
+                         A
+                                         2 Chunks of
+                                           Memory
+                  Tensor B
+
+
+
+
+  Save shared memory via pre-compiled “dynamic” allocation
+μGraph Optimization: Overall Flow
+
+
+
+
+                                           3. Kernel Memory
+1. Block-Level Fusion
+                                               Planning
+
+
+                        2. Tensor Layout                      4. Thread Operation
+                            Planning                               Scheduling
+μGraph Optimization: Thread Operator Scheduling
+
+
+  -
+            ex
+                       ÷
+  +
+μGraph Optimization: Thread Operator Scheduling
+
+
+   -
+            ex
+                        ÷
+  +
+ Depth 1   Depth 2    Depth 3
+μGraph Optimization: Thread Operator Scheduling
+
+                                           -            +
+   -
+            ex                              __syncthreads()
+
+
+
+
+                        ÷                        ex
+  +                                         __syncthreads()
+
+
+
+ Depth 1   Depth 2    Depth 3                     ÷
+μGraph Optimization: Thread Operator Scheduling
+
+                                                  -            +
+   -
+               ex                                  __syncthreads()
+
+
+
+
+                            ÷                           ex
+  +                                                __syncthreads()
+
+
+
+ Depth 1      Depth 2     Depth 3                        ÷
+       Synchronize threads only when absolutely necessary
+Results
+Does Mirage actually beat hand-tuned systems?
+●   Baselines
+     ○ TASO/PET
+     ○ PyTorch
+     ○ TensorRT
+     ○ TensorRT-LLM
+     ○ Triton
+     ○ FlashAttention / FlashDecoding
+●   Metrics
+     ○ Runtime (avg/1000 runs)
+●   Experimental Setup:
+     ○ NVIDIA A100/H100
+     ○ Batch sizes = {1, 8, 16}
+
+
+
+
+          Mirage improves over the best prior system by up to 3.3×
+Mirage usually wins, sometimes by a lot
+Mirage usually wins, sometimes by a lot
+
+
+
+
+ Joint algebraic + scheduling + custom-kernel generation beats systems that optimize only on dimension
+Case study 1: attention-family kernels
+Case study 1: attention-family kernels
+
+
+
+
+Attention is the strongest proof point because Mirage is beating kernels people already spent years hand-optimizing.
+Case study 2: Where LoRA gains come from
+
+
+●   Existing systems launch separate kernels for
+    the linear op and the two low-rank LoRA ops
+Case study 2: Where LoRA gains come from
+
+
+●   Existing systems launch separate kernels for
+    the linear op and the two low-rank LoRA ops
+●   Mirage fuses the three MatMuls and the Add
+     ○   Algebraic rewrite first
+     ○   Fused block-level implementation second
+Case study 2: Where LoRA gains come from
+
+
+●   Existing systems launch separate kernels for
+    the linear op and the two low-rank LoRA ops
+●   Mirage fuses the three MatMuls and the Add
+     ○   Algebraic rewrite first
+     ○   Fused block-level implementation second
+●   Concat Nodes:
+     ○ Do not do real computation
+     ○ Tensor-offset changes in shared memory
+     ○ Makes the rewrite especially attractive
+●   Result: 1.1× to 2.4× speedup
+Case study 3: GatedMLP success & nTrans failure
+●   GatedMLP: 3.3×
+Case study 3: GatedMLP success & nTrans failure
+●   GatedMLP: 3.3×
+●   2 parallel Matmuls
+●   Fused SiLU + Mul
+Case study 3: GatedMLP success & nTrans failure
+●   GatedMLP: 3.3×
+●   2 parallel Matmuls
+●   Fused SiLU + Mul
+●   nTrans: light-compute
+●   slower than TensorRT
+     ○   SMEM overhead!
+End-to-end impact and practicality
+●   End-to-end latency
+     ○   Chameleon-7B: 1.9×
+     ○   LLaMA-3-8B: 1.4×
+     ○   GPT-3-7B-LoRA: 1.2×
+     ○   nGPT-1B: 1.4×
+End-to-end impact and practicality
+●   End-to-end latency
+     ○   Chameleon-7B: 1.9×
+     ○   LLaMA-3-8B: 1.4×
+     ○   GPT-3-7B-LoRA: 1.2×
+     ○   nGPT-1B: 1.4×
+●   Search is slow
+     ○   4 hours per LAX program
+     ○   Some searches exceed 10 hours
+Mirage ablation and takeaway
+
+● What matters?
+   ○   Thread graph construction
+   ○   Layout optimization
+   ○   Operator scheduling
+   ○   Memory planning
+ Mirage ablation and takeaway
+
+  ● What matters?
+        ○ Thread graph construction
+        ○ Layout optimization
+        ○ Operator scheduling
+        ○ Memory planning
+  ●    Removing one hurts performance
+
+
+
+
+Multi-level joint optimization is why Mirage beats both graph-level and schedule-level prior work
+Questions?
+

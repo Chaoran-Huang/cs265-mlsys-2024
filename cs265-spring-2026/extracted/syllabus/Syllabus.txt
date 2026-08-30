@@ -1,0 +1,746 @@
+                                                                      BIG DATA
+                                                                 & AI SYSTEMS
+
+
+
+
+      HTTP://DASLAB.SEAS.HARVARD.EDU/CLASSES/CS265/
+
+                      CS 265 SYLLABUS
+                    Prof: Stratos Idreos (stratos@seas.harvard.edu)
+
+
+
+
+After taking CS265, you will be able to understand big data and AI system
+ internals for LLMs, Machine Learning, and broad Data Science tasks, as
+    well as have a handle on what it means to do CS systems research.
+
+
+
+
+                                                                         1 of 17
+                                                                      BIG DATA
+                                                                 & AI SYSTEMS
+
+
+
+WHAT IS THIS CLASS ABOUT?
+Big data is everywhere. A fundamental goal across numerous modern
+businesses and sciences is to be able to utilize as many machines as
+possible, to consume as much information as possible and as fast as
+possible. The big challenge is "how to turn data into useful knowledge
+and actionable decisions". This is a moving target as both the underlying
+hardware and our ability to collect data evolve. In this class, we will discuss how to
+design systems (data structures and algorithms) for key data-driven areas,
+including NoSQL, newSQL, LLMs, machine learning, RAG, Image AI, and neural
+networks. We will see how they all rely on the same set of very basic concepts and we
+will learn how to synthesize ef cient solutions for any problem across these areas using
+those basic concepts.
+
+
+      WHAT IS A DATA SYSTEM & WHAT IS AN AI SYSTEM?
+      Data systems and AI systems are literally everywhere. We are using them
+      directly or indirectly every day all day long for numerous basic or not so
+      basic tasks, e.g., when we are buying coffee to when we are booking
+      airplane tickets or training a neural network. They provide the backbone
+      of all modern businesses to manage their data and decisions and of
+      course they provide the backbone of online businesses and environments
+      such as social networks and search engines. They are also used
+      increasingly in science as data becomes more and more the fundamental
+      enabler in generating knowledge.
+
+
+
+
+              WHAT IS THIS CLASS NOT ABOUT?
+               This class is not a traditional introduction on how we use a database
+                systems, AI systems, and how to write SQL or Python code. Instead,
+                  this is a systems class about system design. You will learn how big
+                    data and AI systems work at their core and how to design new
+                     systems for emerging data-driven applications and hardware. By
+                     the way, if you know how systems work, you also become better at
+                    using them!
+
+
+
+
+                                                                                 2 of 17
+                fi
+                                                                           BIG DATA
+                                                                      & AI SYSTEMS
+
+WHY TAKE THIS CLASS?
+Data is everywhere. Every year we create even more data. As it stands, every two days
+we create as much data as much we created from the dawn of humanity up to
+2003 [Eric Schmidt, Google]. Sciences, businesses, and everyday life are substantially
+affected. Data systems are in the middle of all this. Data systems are how we store and
+access data, i.e., they are the backbone of any data-driven application. It is a $100B
+industry, growing 10% every year [Economist, “Data, data everywhere”].
+
+At the same time, systems research and the whole industry are undergoing a major,
+ongoing transition; as new data-driven scenarios and applications emerge, there is a
+constant need to rede ne what constitutes good system design in such a dynamic
+environment.
+
+               CS265 exposes students to the core internals of data & AI systems,
+               enabling them to understand key trends in system design and become
+               among the few who can design and evaluate systems. In addition, due
+               to the way the course is taught (focus on interactive problem solving,
+               open topics, and the latest research results), this is also a great class
+               for those who want to understand what CS research is all about and
+               how to engage in doing research.
+
+
+WHAT IS THE EXPECTED LEARNING OUTCOME?
+1. Learn state-of-the-art research and industry trends in big data & AI systems.
+2. Understand the tradeoffs in designing and implementing modern systems.
+3. Be able to make design decisions in big data-driven scenarios.
+4. Understand the fundamental principles that govern all systems and how these
+   apply across diverse areas:NoSQL, LLMs, Neural Networks, Data Science, Vision.
+5. Develop basic research skills: reading, writing, and understanding research
+   papers.
+6. Deepen C programming, debugging, and performance pro ling skills.
+
+
+                    (here is where all the magic happens!)
+
+
+
+
+                     system kernel
+
+
+
+
+                                                  cs165/265 student
+                                                                                 3 of 17
+         fi
+                                             fi
+                                                                              BIG DATA
+                                                                         & AI SYSTEMS
+
+
+
+
+     CLASS PHILOSOPHY
+     CS265 has unlimited of ce hours, relies on the latest research papers instead of a
+     standard textbook, lectures are based on interaction and discussion instead of just
+     “lecturing”, many of the quizzes and problem sets are actually open research
+     problems, and most of all, it is fun! The instructor and the TFs are here to help you
+     every day and at all times throughout the semester. You may request as many meetings
+     as you like and as much help as you want.
+
+     The course is also geared toward engaging students in creative thinking and problem-
+     solving to give them a sense of how computer science research takes place. Many of
+     our students have successfully conducted research projects with DASlab and
+     published papers.
+
+                     HOW DOES 265 COMPARE TO 165?
+     If you took and liked CS165, you will like CS265 as well. From a content standpoint,
+     CS265 builds on CS165 by covering additional topics, with a focus on AI. In terms of
+     how the class is taught, it is even more interactive and research-oriented. Semester
+     projects focus on open research problems with the potential to lead to publication, and
+     every class is focused on a single research paper and its detailed understanding.
+
+     HOW MUCH WORK IS IT?
+     You may have heard stories about CS165 and are wondering whether CS265 will be
+     equally hard, or you may have taken CS165 and are wondering whether this will be a
+     similar amount of work. CS165 and CS265 are different styles of classes. While CS165
+     is much more focused on implementation, leading to a full system prototype, CS265 is
+     more focused on ideas and design. In other words, you may have written 5-10K lines of
+     code (some even more!) for CS165 but in CS265 you are more likely going to write
+     small amounts of code and mostly play with alternative ways to design a speci c
+     functionality, structure or algorithm or model to highlight the effect of different choices
+     and to nd out new ways to solve a speci c problem.
+
+
+                                                                                        4 of 17
+fi
+                fi
+                                 fi
+                                                                               fi
+                                                                        BIG DATA
+                                                                   & AI SYSTEMS
+LECTURES
+The class meets twice a week.
+
+
+                                    INTERACTION IN EVERY CLASS
+                                    While the instructor will give a few lectures
+                                    throughout the semester, the class will be primarily
+                                    discussion-based. Think of this as an extended
+                                    brainstorming session, a round table discussion
+                                    about a speci c problem in each class. The goal is
+                                    to maximize interaction.
+
+                                    Our discussion will aim to highlight design trends
+                                    and trade-offs, as well as algorithmic issues.
+                                    Another signi cant part of our discussions will
+                                    focus on examining open problems and
+                                    highlighting opportunities for innovation.
+
+                                     At the very beginning of the semester, the instructor
+will do 4-5 lectures to provide the necessary background. After that, each class will be
+based on a student presentation about a recent research paper, which will work as a
+trigger for the day’s brainstorming. Depending on the class's needs, the instructor will
+give additional lectures during class time or during our extra research sessions.
+
+
+
+
+OFFICE HOURS & LABS
+Interaction does not stop at lecture time. CS265 is designed to maximize interaction, as
+we truly believe this is the best way to learn; we offer daily of ce hours and labs.
+
+Starting Week 1, Prof. Idreos will hold of ce hours during the week, and additional OH
+will be offered periodically during the weekend. Labs are offered by the TFs. Rooms
+and slots: TBA on the class website. The goal of labs is to get hands-on help for the
+projects (coding). Bring your laptop and any questions about speci c parts of the
+project you need help with. Labs are the place to go when you have a persistent bug,
+when you need help with a speci c tool for the project (e.g., for debugging or
+performance testing), or to get feedback about the quality of your coding.
+
+
+
+
+                                                                                  5 of 17
+fi
+     fi
+                        fi
+                             fi
+                                                fi
+                                                           fi
+                                                                                BIG DATA
+                                                                           & AI SYSTEMS
+
+          CLASS RECORDINGS
+          All classes and interactive sessions will be recorded and available online. Even if you
+          miss a class, it will be easy to catch up, and you can use these recordings to review
+          speci c material throughout the semester (e.g., to prepare for midterms).
+
+
+
+          SECTIONS
+          Another component of the course is sections. Sections
+          are used to deliver material about the class, i.e., to go
+          more deeply into some of the concepts discussed in
+          class, to do additional quizzes, or to deliver background
+          material that is needed to follow next week’s class or for
+          the project. There will be no actual section meeting.
+          Instead, all sections will be recorded by the teaching
+          staff, and videos will be posted online. The material
+          posted will be tailored to provide a step-by-step guide for
+          each topic, making it easy to follow without being
+          physically present in the section. However, if there are still
+          questions about the material presented in the sections, you can ask them during the
+          daily of ce hours or in labs.
+
+
+
+
+                                            RESEARCH SESSIONS
+                                            Throughout the semester, on select days, the
+                                            instructor and DASlab PhDs and postdocs will
+                                            discuss research! First, DASlab researchers will
+                                            present their recent work in data systems and
+                                            connect it to the material you are learning in class.
+                                            Then you will have the chance to talk with them
+                                            about their research and open problems, and to
+                                            learn about open research opportunities. Snacks
+                                            and drinks will be provided.
+
+
+
+
+                                                                                          6 of 17
+fi
+     fi
+                                                                                      BIG DATA
+                                                                                 & AI SYSTEMS
+          WEEKLY REVIEWS
+          Each student will write two paper reviews per week. This
+          prepares you for the class discussion. Reviews should be no
+          more than two pages long.
+          Each review should have text for at least the following 9 points:
+
+          1)   what is the problem?
+          2)   why is it important?
+          3)   why is it hard?
+          4)   why existing solutions do not work?
+          5)   what is the core intuition for the solution?
+          6)   does the paper prove its claims?
+          7)   what is the setup of analysis/experiments? is it suf cient?
+          8)   are there any gaps in the logic/proof?
+          9)   describe at least one possible next step.
+
+          Reviews are not required and are not graded. Their utility lies in preparing students for
+          the class discussion.
+
+
+
+
+                                                                               PRESENTATIONS
+          Each student will do at least one paper presentation during the semester. Presentations
+          should follow similar guidelines as the guidelines for reviews. There should be 1-2
+          slides for each one of the nine core points in the review guidelines. In addition, there
+          should be detailed slides that describe the core idea of the paper.
+
+          Your slides should not be a multiple sheets of bullet lists - in fact try to avoid bullet lists
+                  altogether - your slides should follow the generic formatting you will see in the
+                      rst four lectures, that is: make slides as simple as possible - avoid text unless
+                                 absolutely needed - no full phrases unless you need to give an
+                                 exact de nition of something - use gures and visual examples, one
+                                 slide one message=each slide should have a single goal that you
+                              should be able to describe within a single phrase.
+
+                             Your slides should be reviewed by the instructor at least 24 hours
+                             before the class you are presenting. The nal deck of slides should
+                         be available 30 minutes before class so we can upload online. You are
+                         welcome to join for OH for help >>1 while you prepare your slides!
+
+
+
+
+                                                                                                 7 of 17
+fi
+     fi
+                                 fi
+                                         fi
+                                                 fi
+                                                                           BIG DATA
+                                                                      & AI SYSTEMS
+
+
+     WHO CAN TAKE THIS CLASS?
+     IF you have taken CS165, CS161, CS261
+            GOTO next syllabus section;
+     ELSE
+            see below;
+
+     Background: Naturally, the more background you have, the smoother your experience
+     in 265 will be. Prior knowledge of C programming and systems programming, as well
+     as a solid understanding of computer architecture, particularly the memory hierarchy
+     (including cache memory), is essential for this class. Courses that provide a systems
+     background (such as CS50 and, in particular, CS61 or equivalent) are essential. Good
+     hacking, algorithm designing, and data structures skills are also required.
+
+     If you are a graduate student and have taken a mix of systems (database, operating,
+     and distributed systems) classes in the past, you will be OK, and we will provide
+     enough background for you to follow. CS265 satis es the systems requirement for a
+     PhD.
+
+     If you are a senior in college and this is your last chance to take this class, if you
+     have taken CS61 but no CS161 or CS165, then talk to the instructor to evaluate how t
+     you are for the class. If you have not taken CS61 but do have signi cant systems
+     programming experience, you may still qualify.
+
+     In all other cases, you can take the class as the “systems track” instead of the
+     “research track”. This simply means that you start with the systems project instead of
+     the research project until you build enough systems background.
+
+
+
+
+     HOW CAN I DO GREAT IN 265?
+     Just utilize all resources provided. Show up in class to
+     participate in interactive sessions. There are also daily
+     of ce hours and labs; show up as often as possible so
+     we can help with anything you need! When you nd
+     yourself stuck with the project, either with a design
+     decision or just a bug, it is normal to struggle for a
+     while — it is part of the learning process — but after                      I got an
+     some time, grab your laptop and come by!                                        A
+                                                                                  in 265!
+
+
+
+
+                                                                                            8 of 17
+fi
+                                            fi
+                                            fi
+                                                                 fi
+                                                                            fi
+                                                                           BIG DATA
+                                                                      & AI SYSTEMS
+
+
+     WHAT CAN I DO TO PREPEARE?
+     Especially if you have not taken CS165, it is a good idea to spend some time preparing
+     before the semester starts and during the early weeks of the semester, even if you
+     consider yourself an expert systems student. The best approach is to browse some
+     foundational readings on data systems architecture. We propose that you take a look at
+     the following texts from the CS165 readings:
+
+     1) Get familiar with the very basics of traditional database architectures:
+     Architecture of a Database System. By J. Hellerstein, M. Stonebraker and J. Hamilton.
+     Foundations and Trends in Databases, 2007
+
+     2) Get familiar with very basics of modern database architectures:
+     The Design and Implementation of Modern Column-store Database Systems. By D.
+     Abadi, P. Boncz, S. Harizopoulos, S. Idreos, S. Madden. Foundations and Trends in
+     Databases, 2013
+
+     3) Get familiar with the very basics of modern large scale systems:
+     Massively Parallel Databases and MapReduce Systems. By Shivnath Babu and
+     Herodotos Herodotou. Foundations and Trends in Databases, 2013
+
+
+     Test 0: We provide a Test 0 that is designed to 1) help you get an idea about how t
+     you are for the class and 2) bootstrap your C coding skills. Essentially Test 0 consists
+     of an independent data structure design and implementation in C that will allow you to
+     practice basic system design, coding and debugging skills. In addition, several
+     fundamental section videos are posted on the class website about system coding and
+     pro ling to help you with that.
+
+
+
+
+               GRADING
+          • Class discussions: 30%
+          • Paper presentation: 15%
+          • Semester project: 45%
+          • Midway check-in: 10%
+
+
+
+
+                                                                                      9 of 17
+fi
+                                                                             fi
+                                                                           BIG DATA
+                                                                      & AI SYSTEMS
+
+SEMESTER PROJECT
+Each student completes a semester project. There are two kinds of semester projects:
+1) a systems project, and
+2) a research project.
+
+Systems projects are tailored to provide background on state-of-the-art systems, data
+structures, and algorithms. They include a design component and an implementation
+component in C or C++, addressing low-level system issues such as memory
+management, hardware-aware processing, parallel processing, read/write trade-offs,
+and scalability.
+
+The project descriptions can be found on the class website. Projects include building a
+full NoSQL system and building a full LLM.
+
+This is a focused project that, while it is not extremely heavy in terms of the amount of
+code you have to write, will bring you up against basic modern system design issues
+and trade-offs. We will upload a detailed description on the class website before the
+beginning of the semester. Systems projects will be completed individually; each
+student will work on their own project.
+
+                  The research project, on the other hand, is much more tailored to design
+                   and proof-of-concept implementations, aiming to solve open problems.
+                   Research projects are tailored to give students a taste of research and to
+                   lead to publications. When working on a research project, students will
+                   work closely with the instructor and members of DASlab on the lab's
+                       active research projects. Students will work in groups of three. Such
+                         projects are mainly about thinking, reading, and writing, and much
+                           less about coding, although proof-of-concept implementations will
+           be our          end goal in some cases. Project descriptions are announced
+           e v e r y     year within the rst 3 weeks of class but you can always check the
+           latest publications of DASlab to see the most recent active research topics.
+
+
+
+
+ Research projects will be offered to students who have taken CS165 in the past and to
+those with a signi cant systems background (e.g., systems PhDs). This will be done in
+consultation with the instructor.
+
+
+Systems project can evolve into research projects throughout the semester for
+students who progress fast and want to continue with research.
+
+
+
+                                                                                    10 of 17
+ fi
+      fi
+                                                                                 BIG DATA
+                                                                            & AI SYSTEMS
+          What is a successful project? For systems projects, we will specify the functionality
+          and performance metrics you must achieve as part of the project description. For
+          research projects, we will provide speci c questions you need to answer when we set
+          up each project.
+
+                                  Evaluation: There are no nals or midterms. At the end of the
+                                  semester, each student will have a meeting with the instructor
+                                    and another with the TFs, during which they will demonstrate
+                                     their projects and answer design questions about them. [Tip:
+                                     Past experience shows that frequent participation in of ce
+                                     hours, brainstorming sessions, and sections means that the
+                                    instructor and the TFs are very well aware of your system
+                                    and your progress, which makes the nal evaluation a mere
+                                    formality for these cases.]
+
+          Collaboration policy: The systems project is an individual project. The nal
+          deliverable should be personal; you must write all the code for your system from
+          scratch, and all documentation and reports. Discussing the design and implementation
+          problems with other students is allowed and encouraged! We will do so in class, during
+          of ce hours, and during brainstorming sessions. Research projects will be in groups of
+          three. As with the systems project, we encourage cross-team discussions, but
+          ultimately each team should deliver a project that is clearly its own.
+
+          Late days policy: All projects are due at the end of the semester, and this is when they
+          will be graded. The more input you give us throughout the semester, the more we can
+          help you learn. In the systems project description, you can nd a detailed time
+          schedule that we propose you follow. Similarly, we will set up speci c timelines for each
+          research project. All timelines are ideal plans, and you can adjust them to your
+          schedule.
+
+
+
+                 Note: Experience shows that each year, some students cannot handle the
+                  freedom to self-pace and end up signi cantly deviating from the schedule. We
+                    will send you frequent reminders, but please note that deviating from the
+                     schedule by more than a couple of weeks will most likely mean you will not
+                     be able to nish the whole project by the end of the semester (unless you
+                     are an experienced systems student).
+
+
+          Midway Check-in: The goal here is to demonstrate that you are having decent
+          progress and mainly to avoid falling behind. By early March, each student working on a
+          systems project should deliver 1) a design document and 2) one performance
+          experiment that demonstrates an early result (10%). A template of the expected design
+          document will be provided early in the semester.
+
+                                                                                          11 of 17
+fi
+     fi
+                       fi
+                                   fi
+                                        fi
+                                             fi
+                                                      fi
+                                                               fi
+                                                                    fi
+                                                                                 fi
+                                                                                          BIG DATA
+                                                                                     & AI SYSTEMS
+
+
+
+
+     FEEDBACK
+     We welcome feedback and ideas about
+     the course at any point during the
+     semester. Just come and chat with us
+     during of ce hours! Tell us how you are
+     keeping up and how we can make it easier
+     for you.
+
+
+
+
+                           NO LAPTOP/PHONE POLICY
+                         CS265 is based on interaction. We want students actively
+                          participating in class and interactive sessions, asking and
+                          answering questions to maximize learning. In each class, we will
+                          bring a printed copy of the slides for each one of
+                         the students so you can follow along and to keep
+                        notes on paper. So you do not need your laptop
+                     or phones for notes or looking up the slides online.
+     In fact, recent studies show that even if you only use a laptop for
+     note taking, it can have a negative impact on how well you
+     understand the material in class1.
+
+     [The Pen Is Mightier Than the Keyboard: Advantages of Longhand
+     Over Laptop Note Taking. Pam A. Mueller and Daniel M. Oppenheimer.
+     Psychological Science. 2014, Vol. 25(6) 1159–1168]
+
+
+
+
+     1 There are cases where having a phone or laptop during class is necessary such as when you expect
+
+     an important call or message or when you need the laptop to better follow the slides due to any issues
+     with your eyes or ears. Just let the instructor know and all such cases will be granted permission to use
+     any tools necessary.
+
+
+
+                                                                                                     12 of 17
+fi
+                                                                        BIG DATA
+                                                                   & AI SYSTEMS
+
+
+
+
+GUEST LECTURES
+Every semester we arrange a few guest lectures by leaders in data system design from
+industry and academia. Past guest lecturers in our classes include: Guy Lohman from
+IBM Research, Erietta Liarou from EPFL Lausanne, Alkis Simitsis and Georgia Koutrika
+from HP Labs, Nikita Shamgunov from MemSQL, Laura Haas from IBM Research, Nga
+Tran from Vertica, Jignesh Patel from University of Wisconsin, Johannes Gherke, from
+Microsoft, Marcin Zukowski from Snow ake, Richard Hipp from SQLite, Ryan Johnson
+from Logicblox.
+
+You will get the opportunity to both attend a guest lecture and to actively participate in
+discussions with our guest speakers.
+
+
+
+
+            REQUIRED TEXTBOOK
+            The class is about state-of-the-art data system design. There is no
+            textbook for that. Thus, we use recent research papers and surveys, which
+            will be posted on the course website, which you will have access to
+            through the Harvard network.
+
+
+
+
+                                                                                 13 of 17
+                          fl
+                                                                        BIG DATA
+                                                                   & AI SYSTEMS
+
+
+
+
+ONLINE DISCUSSIONS
+We will use ED Discussions as a forum for online discussions. The links are posted on
+the class website. You are welcome to post any questions that might help you better
+understand the material or with the project. Anonymous posting (to other students) will
+be enabled so that students feel more comfortable posting.
+
+BASIC RULES: We have only a few basic rules to keep the forum functional and useful
+for students while remaining manageable for staff.
+1) We ask that you search the forum thoroughly before posting a question so we do
+    not have duplicate entries.
+2) Please make sure to stay on top of all staff posts (especially those that are pinned).
+    Anything we post on the forum is considered “known”.
+3) Do not use the forum to post code or ask for help with debugging. While it can work
+    in some cases, debugging through messaging is a pain and time-consuming. We
+    have labs every day. Bring your laptop, and we will help you on-site, or join
+    remotely, and we will help you via a shared screen mode.
+4) Do not use the forum for anything other than technical questions or questions about
+    class logistics. If you want to discuss any concerns about your progress, t for the
+    class, or anything else you should come to OH.
+
+
+
+
+                                                                                14 of 17
+                                                              fi
+                                                                         BIG DATA
+                                                                    & AI SYSTEMS
+
+
+PLAGIARISM
+You are responsible for understanding Harvard and Harvard Extension School policies
+on academic integrity (www.extension.harvard.edu/resources-policies/student-
+conduct/academic-integrity) and how to use sources responsibly. Not knowing the
+rules, misunderstanding the rules, running out of time, submitting "the wrong draft", or
+being overwhelmed with multiple demands are not acceptable excuses. There are no
+excuses for failure to uphold academic integrity. To support your learning about
+academic citation rules, please visit the Harvard Extension School Tips to Avoid
+Plagiarism (www.extension.harvard.edu/resources-policies/resources/tips-avoid-
+plagiarism), where you'll nd links to the Harvard Guide to Using Sources and two, free,
+online 15-minute tutorials to test your knowledge of academic citation policy. The
+tutorials are anonymous open-learning tools.
+
+ACCESSIBILITY
+Harvard and the Extension School are committed to providing an accessible academic
+community. The Disability Services Of ce offers a variety of accommodations and
+services to students with documented disabilities. Please visit
+www.extension.harvard.edu/resources-policies/resources/disability-services-
+accessibility for more information and do not hesitate to contact prof. Idreos directly, by
+email, with any questions or concerns you might have.
+
+
+
+
+                                                                                  15 of 17
+           fi
+                           fi
+                                                                              BIG DATA
+                                                                         & AI SYSTEMS
+     EXTENSION SCHOOL
+     This section supplements the basic syllabus with details speci c to extension school
+     students.
+
+     CS265 is a highly research-oriented course structured very differently from other
+     classes, valuing and promoting critical thinking. For most students, this requires a
+     transition phase. Please check the syllabus and requirements carefully before
+     committing to this course.
+
+     In addition, keep in mind that successfully completing this course will require
+     participation in OH and Lab sessions. Even if they are not mandatory, they are critical
+     for students to understand how to think about the material and how to design solutions.
+     Especially if you do not have all the background described in the syllabus (i.e., if you
+     have not taken a research-oriented systems course with a heavy systems project), you
+     should budget time for frequent participation in both Labs and OH, as well as many
+     hours of additional work each week, to build the foundations needed.
+
+     Lecture: Lectures will be broadcast live. Lectures will also be available on demand
+     within 24 hours after each class. Students can watch the live or recorded broadcast in
+     their browser. The link to the CS265 broadcasts will be available on the Canvas website
+     and will also be posted on the class website before the rst lecture.
+
+     Participation: Extension school students will be able to participate live in classes,
+     of ce hours, and labs via web-conference tools (we will use Zoom). The course staff
+     will be online with Zoom during each session that is marked as “remote” and you will
+     be able to actively interact with the staff. In addition to standard chat and call features,
+     Zoom offers screen sharing, which you can use when you need help with speci c
+     issues, such as debugging.
+
+     Capturing Discussions: Given that a big portion of the class is based on interaction,
+     extension school in cooperation with the class staff is always working to set-up a
+     system with several microphones across the classroom so we can accurately and
+     clearly capture brainstorming discussions and comments during class time.
+     Microphones will “follow” the instructor.
+
+     Grading: Although we encourage extension school students to take advantage of the
+     opportunity to interact with staff and participate in live classes, we know that, for
+     practical reasons, this will not be possible for all remote students. For this reason,
+     extension school students will not receive a “class participation” grade. The rest of the
+     course is exactly the same as what local students do.
+
+     For this reason, the portion of the class participation grade (30%) will be distributed to
+     other class components, and the nal grade breakdown is as follows: project (60%),
+
+
+
+                                                                                        16 of 17
+fi
+                           fi
+                                                 fi
+                                                          fi
+                                                                                fi
+                                                                                   BIG DATA
+                                                                              & AI SYSTEMS
+          presentation (25%). The 15% for the midway check-in completes the grade distribution
+          for the extension school.
+
+          Discussion Forum: Given that remote students often have different needs due to
+          distance, there is a separate forum tailored to extension schools. Look at the class
+          website for the forum link for extension school students.
+
+          Of ce Hours and Labs: Extension school OH and Labs are held remotely on
+          weekends, which is typically more convenient for most students. In this way, we can
+          have more exibility to accommodate students with day jobs who cannot attend during
+          the week. The schedule will be posted at the beginning of the semester on the class
+          website and the forum.
+
+          Starting Date: Note that extension schools usually list the class start date as one day
+          after the actual start date. In fact, this is when the rst video will be available. However,
+          extension school students will still be able to stream the rst class live on the rst day
+          of classes and participate as usual. Check the class website for the exact schedule if
+          you want to participate live.
+
+
+
+
+                                                                                             17 of 17
+fi
+     fl
+                                                fi
+                                                        fi
+                                                                               fi
+

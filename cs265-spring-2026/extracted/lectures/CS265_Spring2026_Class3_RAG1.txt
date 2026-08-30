@@ -1,0 +1,827 @@
+Augment LLMs with Retrieval
+Self-designing RAG Systems
+
+
+
+
+Qitong Wang, qitong@seas.harvard.edu
+CS265. February 3, 2026
+
+                                       1
+• Why we need retrieval
+• How RAG works                                      This class
+
+• Algorithm designs
+
+
+
+
+• System designs
+  Storage, pipelining, tuning, resource allocation   Next class
+• Self-designing RAG systems
+      Large Language Models (LLMs)
+
+
+
+
+Images are obtained from the Internet for non-commercial uses.
+Icons are obtained from https://www.flaticon.com
+
+                                                                                     What is PyTorch?
+
+
+
+                    PyTorch is an open-source machine learning and deep learning
+                    framework primarily used to build and train artificial intelligence models.
+
+
+
+                                                         How many people are using PyTorch now?
+
+
+
+                    As of early 2026, millions of developers and researchers are actively
+                    using PyTorch.
+
+
+
+                                   Write the code that uses torch.profile to profile the
+                                   performance of a LLM pipeline. Here is the API document.
+                    …
+                    with profile(
+                       activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA] if
+                    torch.cuda.is_available() else [ProfilerActivity.CPU],
+                    …
+Icons are obtained from https://www.flaticon.com
+
+                                                                                     What is PyTorch?
+                                                                                        LLM  input
+
+
+
+
+                    PyTorch is an open-source machine   learning
+                                                  LLM output
+                                                                 and    deep   learning
+                    framework primarily used to build and train artificial intelligence models.
+
+
+
+                                                         How many people areinput
+                                                                       LLM    using PyTorch now?
+
+
+
+                    As of early 2026, millions of developers and
+                                                    LLM output
+                                                                 researchers are actively
+                    using PyTorch.
+
+
+
+                                   Write the code that uses torch.profile
+                                                               LLM input
+                                                                          to profile the
+                                   performance of a LLM pipeline. Here is the API document.
+                    …
+                    with profile(
+                       activities=[ProfilerActivity.CPU,
+                                               LLM outputProfilerActivity.CUDA] if
+                    torch.cuda.is_available() else [ProfilerActivity.CPU],
+                    …
+                                    Want to start a startup? Get funded by Y Combinator.
+
+
+
+
+                         November 2009 I don't think Apple realizes how badly the App Store approval
+                         process is broken. Or rather, I don't think they realize how much it matters that
+                         it's broken. The way Apple runs the App Store has harmed their reputation with
+                         programmers more than anything else they've ever done. Their reputation with
+                         programmers used to be great. It used to be the most common complaint you
+                         heard about Apple was that their fans admired them too uncritically. The App
+                         Store has changed that. Now a lot of programmers have started to see Apple
+                         as evil.How much of the goodwill Apple once had with programmers have they
+                         lost over the App Store? A third? Half? And that's just so far. The App Store is
+                         an ongoing karma leak. How did Apple get into this mess? Their fundamental
+                         problem is that they don’t understand software.They treat iPhone apps the way
+                         they treat the music they sell through iTunes. Apple is the channel; they own
+                         the user; if you want to reach users, you do it on their terms. The record labels
+                         agreed, reluctantly. Want to start a startup? Get funded by Y Combinator. But
+                         this model doesn't work for software. It doesn’t work for an intermediary to own
+                         the user. The software business learned that in the early 1980s, when
+                         companies like VisiCorp showed that although the words "software" and
+                         "publisher" fit together, the underlying concepts don't.
+
+Greg Kamradt. Needle In A Haystack - Pressure Testing LLMs. 2023.
+                                    Want to start a startup? Get funded by Y Combinator.
+
+
+
+
+                         November 2009 I don't think Apple realizes how badly the App Store approval
+                         process is broken. Or rather, I don't think they realize how much it matters that
+                         it's broken. The way Apple runs the App Store has harmed their reputation with
+                         programmers more than anything else they've ever done. Their reputation with
+                              As data scale matters in data systems,
+                         programmers used to be great. It used to be the most common complaint you
+                         heard about Apple was that their fans admired them too uncritically. The App
+                              data scale also matters in AI systems!
+                         Store has changed that. Now a lot of programmers have started to see Apple
+                         as evil.How much of the goodwill Apple once had with programmers have they
+                         lost over the App Store? A third? Half? And that's just so far. The App Store is
+                         an ongoing karma leak. How did Apple get into this mess? Their fundamental
+                         problem is that they don’t understand software.They treat iPhone apps the way
+                         they treat the music they sell through iTunes. Apple is the channel; they own
+                         the user; if you want to reach users, you do it on their terms. The record labels
+                         agreed, reluctantly. Want to start a startup? Get funded by Y Combinator. But
+                         this model doesn't work for software. It doesn’t work for an intermediary to own
+                         the user. The software business learned that in the early 1980s, when
+                         companies like VisiCorp showed that although the words "software" and
+                         "publisher" fit together, the underlying concepts don't.
+
+Greg Kamradt. Needle In A Haystack - Pressure Testing LLMs. 2023.
+                                            What is PyTorch?
+
+                              Short and simple question
+                                     ~10 words
+
+
+
+                    How many people are using PyTorch now?
+
+
+ Short question, but requires external information
+              ~1k words combined
+
+
+Write the code that uses torch.profile to profile the
+performance of a LLM pipeline. Here is the API document.
+
+
+ Long question (including the document content)
+             ~1m words combined
+             LLM input             the entire file/database, oﬄoaded
+
+                          November 2009 I don't think Apple realizes how badly
+                         the App Store approval process is broken. Or rather, I
+                         don't think they realize how much it matters that it's
+                         broken. The way Apple runs the App Store has harmed
+                         their reputation with programmers more than anything
+                         else they've ever done. Their reputation with
+                         programmers used to be great. It used to be the most
+                         common complaint you heard about Apple was that
+                         their fans admired them too uncritically. The App Store
+                          has changed that. Now a lot of programmers have
+
+
+                                                       Retrieve
+
+
+                          Want to start a startup? Get funded by Y Combinator.
+
+
+                                the paragraphs relevant to the input
+LLM output
+
+                           Retrieval-augmentation
+             LLM input                        the entire file/database, oﬄoaded
+
+                                     November 2009 I don't think Apple realizes how badly
+                                    the App Store approval process is broken. Or rather, I
+                                    don't think they realize how much it matters that it's
+                                    broken. The way Apple runs the App Store has harmed
+                                    their reputation with programmers more than anything
+                                    else they've ever done. Their reputation with
+                                    programmers used to be great. It used to be the most
+                                    common complaint you heard about Apple was that
+                                    their fans admired them too uncritically. The App Store
+                   Let’s unbox LLM and retrieval.
+                                     has changed that. Now a lot of programmers have
+
+
+                                                                  Retrieve
+
+
+                                     Want to start a startup? Get funded by Y Combinator.
+
+
+                                           the paragraphs relevant to the input
+LLM output
+
+                                      Retrieval-augmentation
+How LLM works
+
+
+
+
+                Ashish Vaswani, et al. Attention is All you Need. NIPS 2017
+                                                nput-Input Layer1
+                            It   It
+                           is    is
+                           in    in
+                        this     this                               The meaning of a word
+                       spirit
+                       that
+                                 spirit
+                                 that
+                                                                    is determined by its context
+                           a     a
+                    majority     majority
+                           of    of
+                   American      American
+                governments      governments
+                       have      have
+                     passed      passed
+How LLM works
+
+
+
+
+                        new      new
+                        laws     laws
+                       since     since
+                       2009      2009
+                     making      making
+                        the      the
+                 registration    registration
+                          or     or
+                      voting     voting
+                    process      process
+                       more      more
+                     difficult   difficult
+                             .   .
+                     <EOS>       <EOS>
+                      <pad>      <pad>
+                      <pad>      <pad>
+                      <pad>      <pad>
+                      <pad>      <pad>
+                      <pad>      <pad>
+                      <pad>      <pad>
+                                                   nput-Input Layer1
+                              It    It
+                             is     is
+                             in     in
+                          this      this                               The meaning of a word
+                         spirit
+                         that
+                                    spirit
+                                    that
+                                                                       is determined by its context
+                             a      a
+                      majority      majority
+                             of     of
+                     American       American
+                  governments       governments
+                         have       have
+                       passed       passed
+How LLM works
+
+
+
+
+                          new       new
+                          laws      laws
+                         since      since
+                         2009       2009
+                       making       making
+                          the       the
+                   registration     registration
+                            or      or
+                        voting      voting
+                      process       process
+                         more       more
+                       difficult    difficult
+                               .    .
+                       <EOS>        <EOS>
+                generate<pad>
+                      <pad>
+                             the  next word:
+                                     <pad>
+                                     <pad>
+                check     the influence
+                      <pad>          <pad> of
+
+                all previous
+                      <pad>
+                      <pad>
+                                words<pad>
+                                     <pad>
+                        <pad>       <pad>
+                                                                                                                                 put-Input Layer1
+                                                              put-Input Layer1
+                                                                                                is             is
+                           is
+                           in
+                                 K     Q
+                                       in
+                                           is
+                                                          K                      Q              in             in
+                                                                                             this              this
+                        this               this
+                       spirit              spirit
+                                                                                            spirit
+                                                                                            that
+                                                                                                                A   semantic
+                                                                                                               spirit
+                                                                                                               that
+                                                                                                                             vector
+                       that                that
+                                                                                                a
+                           a               a                                                          [5.4, 1.7,a 4.7, 3.4, …, 5.3, 5.1, 8.1, 6.9]
+                                                                                         majority              majority
+                    majority               majority
+                                                                                                of             of
+                           of              of
+                                                                                        American               American
+                   American                American
+                                                                                     governments               governments
+                governments                governments
+                                                                                            have               have
+                       have                have
+                                                                                          passed               passed
+                     passed                passed
+                                                                                             new               new
+                        new                new
+                                                                                             laws              laws
+How LLM works
+
+
+
+
+                        laws               laws
+                                                                                            since              since
+                       since               since
+                                                                                            2009               2009
+                       2009                2009
+                                                                                          making               making
+                     making                making
+                                                                                             the               the
+                        the                the
+                                                                                      registration             registration
+                 registration              registration
+                                                                                               or              or
+                          or               or
+                                                                                           voting              voting
+                      voting               voting
+                                                                                         process               process
+                    process                process
+                                                                                            more               more
+                       more                more
+                                                                                          difficult            difficult
+                     difficult             difficult
+                                                                                                  .            .
+                             .             .
+                                                                                          <EOS>                <EOS>
+                     <EOS>                 <EOS>
+                                                                                           <pad>               <pad>
+                      <pad>                <pad>
+                                                                                           <pad>               <pad>
+                      <pad>
+                      <pad>
+                                 layer i   <pad>
+                                           <pad>
+                                                          layer i+1                        <pad>               <pad>
+                                                                                           <pad>               <pad>
+                      <pad>                <pad>
+                                                                                           <pad>               <pad>
+                      <pad>                <pad>
+                                                                                           <pad>               <pad>
+                      <pad>                <pad>
+                                                                                                                              put-Input Layer1
+                                                                           put-Input Layer1
+                                                                                                         is    is
+                                          is              is
+                                                                                                         in    in
+                                          in              in
+                                                                                                      this     this
+                                       this               this
+                                      spirit              spirit
+                                                                                                     spirit
+                                                                                                     that
+                                                                                                                A   word
+                                                                                                               spirit
+                                                                                                               that
+                                                                                                                         in user request
+                                      that                that
+                                                                                                         a     a
+                                          a               a
+                                   majority               majority
+                                                                                                  majority
+                                                                                                         of
+                                                                                                                A word
+                                                                                                               majority
+                                                                                                               of
+                                                                                                                       in documents
+                                          of              of
+                                                                                                 American      American
+                                  American                American
+                                                                                              governments      governments
+                               governments                governments
+How LLM with retrieval works
+
+
+
+
+                                                                                                     have      have
+                                      have                have
+                                                                                                   passed      passed
+                                    passed                passed
+                                                                                                      new      new
+                                       new                new
+                                                                                                      laws     laws
+                                       laws               laws
+                                                                                                     since     since
+                                      since               since
+                                                                                                     2009      2009
+                                      2009                2009
+                                                                                                   making      making
+                                    making                making
+                                                                                                      the      the
+                                       the                the
+                                                                                               registration    registration
+                                registration              registration
+                                                                                                        or     or
+                                         or               or
+                                                                                                    voting     voting
+                                     voting               voting
+                                                                                                  process      process
+                                   process                process
+                                                                                                     more      more
+                                      more                more
+                                                                                                   difficult   difficult
+                                    difficult             difficult
+                                                                                                           .   .
+                                            .             .
+                                                                                                   <EOS>       <EOS>
+                                    <EOS>                 <EOS>
+                                                                                                    <pad>      <pad>
+                                     <pad>                <pad>
+                                                                                                    <pad>      <pad>
+                                     <pad>
+                                     <pad>
+                                                layer i   <pad>
+                                                          <pad>
+                                                                         layer i+1                  <pad>      <pad>
+                                                                                                    <pad>      <pad>
+                                     <pad>                <pad>
+                                                                                                    <pad>      <pad>
+                                     <pad>                <pad>
+                                                                                                    <pad>      <pad>
+                                     <pad>                <pad>
+                                                               put-Input Layer1
+                                          is    is
+                                          in    in
+                                       this     this
+                                      spirit    spirit                                                     A word in user request
+                                      that      that
+
+
+
+
+                                                                                                                         Input-Input Layer1
+                                          a     a
+                                   majority     majority
+                                                                                              It
+                                                                                             is
+                                                                                                          It
+                                                                                                          is
+                                                                                                              A word in document 1
+                                          of    of
+                                                                                             in           in
+                                  American      American
+                               governments      governments
+                                                                                          this
+                                                                                                           A
+                                                                                                          this
+                                                                                                                 word in document 2
+How LLM with retrieval works
+
+
+
+
+                                                                                         spirit           spirit
+                                      have      have
+                                                                                         that             that
+                                    passed      passed
+                                                                                             a            a
+                                       new      new
+                                                                                      majority            majority
+                                       laws     laws
+                                                                                             of           of
+                                      since     since
+                                                                                     American             American
+                                      2009      2009
+                                                                                  governments             governments
+                                    making      making
+                                                                                         have             have
+                                       the      the
+                                registration             …
+                                                registration
+                                                                                       passed
+                                                                                          new
+                                                                                                          passed
+                                                                                                   Problem:
+                                                                                                          new
+                                         or     or
+
+                                                                                                   Total words    in documents grow
+                                                                                          laws             laws
+                                     voting     voting
+                                                                                         since             since
+                                   process      process
+                                      more      more
+                                                                                         2009
+                                                                                       making
+                                                                                                   (no. documents
+                                                                                                           2009
+                                                                                                           making
+                                                                                                                      grows)
+                                    difficult   difficult
+                                                                                          the             the
+                                            .   .
+                                                                                   registration           registration
+                                    <EOS>       <EOS>
+                                                                                            or            or
+                                     <pad>      <pad>
+                                                                                        voting            voting
+                                     <pad>      <pad>
+                                                                                      process             process
+                                     <pad>      <pad>
+                                                                                         more             more
+                                     <pad>      <pad>
+                                                                                       difficult          difficult
+                                     <pad>      <pad>
+                                                                                               .          .
+                                     <pad>      <pad>
+                                                                                       <EOS>              <EOS>
+                Vq
+                     Solution
+                     (approximation) 1:
+(Embedding)          Have one vector
+Vector search        for the user request
+                     and each document
+
+
+
+
+                V1
+                     Compare (to score)
+                     document vectors
+                     with request vector
+
+                     Select
+                     the most relevant
+
+
+
+
+                V2
+                     documents
+(Document)
+Rerank
+
+
+
+
+                          Relevant                     Irrelevant
+
+
+
+             Solution (approximation) 2:
+             Interact one query-document at one time
+                     Vq
+                     V1
+                                                          Relevant?
+
+
+
+Vector search               ?               Reranking
+
+  Speed +++                                   Speed ++
+Accuracy  +                                 Accuracy ++
+                               Speed ----
+                regular LLM Accuracy +++
+                Vq
+                V1
+                                                      Relevant?
+
+
+
+Vector search               ?             Reranking
+                     Other derivatives?
+                      Vq
+                      V1
+                                                      only last layer
+Vector search   only one vector                      Multi-vector search
+                                                              (ColBERT)
+Reranking   All layers, all vectors
+            but only one query-document pair at one time
+LLM         All layers, all vectors, all documents
+Fast                            The eﬃciency-accuracy tradeoﬀ
+       Vector search
+
+
+                 Multi-vector search
+
+
+
+                           Reranker
+
+                                                        ?
+                                                  How to use them?
+                                       LLM
+
+                                    Accurate
+                         (Similar to LLM mechanisms)
+Fast                            The eﬃciency-accuracy tradeoﬀ
+       Vector search
+
+                                                Cascaded into
+                 Multi-vector search
+                                               one RAG system
+
+
+                           Reranker
+
+
+
+                                       LLM
+
+                                    Accurate
+                         (Similar to LLM mechanisms)
+              LLM input
+
+
+
+                                                                   …     ×1M
+request
+                                             Vector search
+
+                                                    …       ×100
+
+                                             Rerank
+
+                          Want to start a startup? Get funded by Y Combinator.
+
+
+
+ LLM output
+
+                           Retrieval-augmentation
+              LLM input
+
+
+
+                                                                             …     ×1M
+request
+                                                       Vector search
+
+                                                              …       ×100
+                  Other algorithm designs in RAG?
+                                                       Rerank
+
+                                    Want to start a startup? Get funded by Y Combinator.
+
+
+
+ LLM output
+
+                                     Retrieval-augmentation
+              LLM input                                   How to have a startup?
+
+                     documents
+                                                                                         …     ×1M
+request
+                                                                              Agentic
+                                                                   Vector search
+                                                                              retrieval
+                                                                       …      decision
+                                                                             ×(Self-RAG)
+                                                                               100
+
+                                                                   Rerank
+                                     I know this!
+                          External documents is not needed.
+
+                                                Want to start a startup? Get funded by Y Combinator.
+
+
+
+ LLM output
+
+                                                 Retrieval-augmentation
+              LLM input                         How to have a startup?
+
+                     documents
+                                                                                 …      ×1M
+request
+                                                          Vector search
+                                                                   Query
+                                                              … rewrite
+                                                                    ×100
+
+                                                          Rerank
+                                   How do I start a startup from zero—moving from
+                                    idea
+                                      Wantselection
+                                            to start to validation,
+                                                     a startup?  Getcompany
+                                                                     funded byformation,
+                                                                                Y Combinator.
+                                 initial go-to-market, and first financing—using MBA-
+                                   style frameworks (market sizing, unit economics,
+                                     competitive strategy) and practical checklists?
+ LLM output
+
+                                      Retrieval-augmentation
+                                                  Vector search
+                       LLM input                                 How to have a startup?
+
+                              documents
+                                                                                                …     ×1M
+        request
+                                                                          Vector search
+                                                                                   Query
+                                                                              … rewrite
+                                                                                    × 100
+                                                                                   (reasoning
+                                                                                   or thinking)
+                                                                          Rerank
+   How do I identify a venture-scale problem and        How do I structure and launch the company,
+validate demand using business-school frameworks   including MVP scope, team/cofounders, incorporation
+                                                       Want to start a startup? Get funded by Y Combinator.
+ (TAM/SAM/SOM, competitive analysis, customer          basics, go-to-market plan, and initial financing/
+           discovery, willingness-to-pay)?           fundraising, using milestone-based plans and unit
+
+          LLM output
+                            Vector search                                         Vector search
+                                                       Retrieval-augmentation
+      Want to start a startup? LLM  input by Y Combinator.
+                               Get funded                                           the entire file/database, oﬄoaded
+
+                                                                           November 2009 I don't think Apple realizes how badly
+                                                                          the App Store approval process is broken. Or rather, I
+                                                                          don't think they realize how much it matters that it's
+                                                                          broken. The way Apple runs the App Store has harmed
+                                                                          their reputation with programmers more than anything
+                                                                          else they've ever done. Their reputation with
+                                                                          programmers used to be great. It used to be the most
+                                                    Document              common complaint you heard about Apple was that
+                                                    rewrite               their fans admired them too uncritically. The App Store
+                                                                           has changed that. Now a lot of programmers have
+
+
+
+
+    Want to start a startup? Y Combinator (YC) is a well-known early-
+    stage accelerator that provides seed funding, mentorship, and a
+ strong founder network in exchange for equity, helping teams quickly      Want to start a startup? Get funded by Y Combinator.
+      validate a problem, build an MVP, and gain early traction. The
+      program ends with Demo Day, where startups pitch to many
+investors, which can improve follow-on fundraising and credibility, but
+it’s optional and comes with dilution and a bias toward fast growth, so          the paragraphs relevant to the input
+  apply when you canLLM       output
+                         clearly explain the customer, the problem, why
+       your team, and what milestones you’ll hit with the funding.
+
+                                                                            Retrieval-augmentation
+          LLM input
+       Rewritten LLM input
+
+                   documents
+                                                                         …     ×1M
+request
+                                                    Vector
+                                     The answer is not good.
+                                                             search
+                               Rewrite the query and retrieve again.
+                                                           …       ×100
+                                     Agentic Rerank
+                                     assessment
+                                     (Corrective-RAG)
+                                Want to start a startup? Get funded by Y Combinator.
+
+
+
+ LLM output
+
+                                  Retrieval-augmentation
+Fast
+       Vector search
+              Multi-vector search
+                                                  vector search                vector search
+                       Rerank
+
+                            LLM
+
+                                                   rerank                      rerank
+                             Accurate
+
+
+
+
+   • System designs
+       Storage, pipelining, tuning, resource allocation           Next class
+   • Self-designing RAG systems
+

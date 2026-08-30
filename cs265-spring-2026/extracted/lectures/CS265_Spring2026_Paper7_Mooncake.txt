@@ -1,0 +1,434 @@
+Mooncake:
+A KVCache-centric
+Disaggregated
+Architecture for LLM Serving
+
+CS2650
+Presented by
+
+     Raima Afra   Tom Tan   Aadity Sharma   Andrew Zhao
+             MOTIVATION
+
+LLM serving at scale is a resource scheduling problem
+Throughput vs Latency Trade-off in LLM Inference
+
+                              KVCache as the Central Bottleneck
+
+                                      Trade-off
+
+
+
+
+                                       KVCache
+              THROUGHPUT                 Issue                   LATENCY
+               (Batch Size)                                   (Response Time)
+
+  ●   Higher throughput                                  ●   Smaller batches
+  ●   More KVCache needed                                ●   Less KVCache pressure
+         Business Goals
+
+
+ Maximize          Meet Service Level
+Throughput            Objectives
+
+More users =         Fast responses =
+More revenue           Happy users
+      Key Metric #1: TTFT (Time to First Token)
+
+
+                                                                 First Token:
+User Input:
+"Why is the sky blue?"
+                                             ⏱                   "The"
+
+
+
+                                  TTFT < 300ms
+
+
+                         Users perceive this delay immediately
+Key Metric #2: TBT (Time Between Tokens)
+
+           GOOD - Smooth Streaming
+   The       sky            is             blue
+
+
+
+
+            BAD - Stuttering Output
+   The             sky                is
+
+
+           Target: Each gap < 100ms
+How LLMs Generate Responses: Two Stages
+             PREFILL STAGE                               DECODING STAGE
+            Input: "Why is the sky blue?"                  Input: Previous context
+                (all tokens at once)                             + last token
+
+            Process: Parallel ⇉⇉⇉                        Process: Sequential ⛓
+
+                         ↓                                          ↓
+              Output: First token "The"          "sky"               "is"            "blue"
+                + KVCache stored
+
+
+Characteristics:                            Characteristics:
+• Memory-bound                              • Memory-bound
+• High GPU usage                            • Sequential
+• One-time cost                             • Repeats many times
+The vLLM Approach: Prefill + Decoding on SAME GPU
+
+
+                          🖥 SINGLE GPU
+
+                  PREFILL: 100k tokens processing
+
+
+
+           Decoding requests waiting:
+
+            ⏳           ⏳          ⏳      ⏳         ⏳
+
+
+        VRAM: 80 GB (only 1-2 contexts) | Low cache hit rate ❌
+                Mooncake's Core Insight
+                 Same 10k token system prompt used 100 times
+
+
+    ❌ TRADITIONAL WAY                            ✓ MOONCAKE WAY
+       All 100 GPUs computing                              🖥
+                                                         Compute
+10k tokens each:                                              ↓
+🖥         🖥        🖥          🖥
+                                                       KVCache Store
+
+🖥         🖥        🖥          🖥                               ↓
+                                                       RDMA Network
+🖥         🖥        🖥          🖥
+                                                          ↓ ↓ ↓
+Total Cost:                                            99 GPUs receive
+!! 100 × GPU Computation !!                  🖥     🖥      🖥       🖥      🖥   🖥
+
+
+
+
+                Transfer is almost 50× CHEAPER!
+Multi-node Systems Waste Computation Without
+                Coordination
+
+ Node 1              Node 2             Node 3          Node 4
+
+📄 50k Doc           📄 50k Doc          📄 50k Doc
+
+   ❌                   ❌                  ❌              Idle
+Computing           Computing          Computing
+
+
+
+
+            Same 50k token document computed 3 times!
+
+                 Wasted Computation: 200% overhead
+                        Cross-Node Reuse: 0%
+   The Mooncake Architecture
+          Four specialized components work together
+
+                         1. CONDUCTOR 🧠
+
+                            Global Scheduler
+
+
+
+
+2. PREFILL POOL ⇉                RDMA          3. DECODING POOL ⛓
+  Input Processing                                  Output Generation
+
+
+
+
+                     4. MOONCAKE STORE 🗄
+                      Distributed KVCache Storage
+                             Petabyte-scale
+  Step 1: KVCache Reuse
+Conductor searches for matching prefix cache
+
+
+                CONDUCTOR 🧠
+              Tokenizes & Searches
+
+                        ↓
+                  Search Results:
+                Prefix cache found!
+            Selects optimal prefill node
+
+                        ↓
+      Transfer cached KVCache via RDMA
+              Fast network transfer
+                       KVCache Reuse Examples
+System Prompt Reuse                   Multi-turn Chat                    Document Q&A
+     👥 100 Users                         💬 Conversation                    📄 50k Document
+
+            ↓                                     ↓                                 ↓
+     Same 10k prompt                     Conversation History                 Multiple users
+
+
+            ↓                                      ↓                                 ↓
+      Compute once                  Reuse Turns 1-4 & New Question            Cache once
+
+
+       Reuse 100×                         Compute only new                   Share all users
+
+
+
+                                                                               Savings:
+        Savings:                             Savings:                       Massive compute
+      99% cache hit                        80% cache hit                        savings
+
+
+
+          Around 50% of the KVCache tokens in the real-world workloads can be reused
+Step 2: Incremental Prefill
+       Compute ONLY uncached portion
+
+                       PREFILL NODE ⇉
+                     Loads prefix KVCache
+
+
+                                 ↓
+ Cached prefix                                      New computation
+   (Reused)                                        (Uncached portion)
+
+
+
+                                 ↓
+                   Store new KVCache:
+                  MOONCAKE STORE 🗄
+
+ For very long input: Uses chunked prefill (e.g., 1024 tokens/chunk)
+                    Step 3: KVCache Transfer
+                       Stream KVCache from Prefill → Decoding
+
+
+
+PREFILL NODE ⇉                               Layer 1 →                              DECODING NODE ⛓
+                                                 Layer 2 →
+KVCache ready
+                          →                          Layer 3 →        →                  Receiving...
+
+
+
+
+                     Asynchronous transfer                       Layer-wise transfer
+                 (overlapped with computation)                   for better pipelining
+           Step 4: Decoding
+   Generate tokens one-by-one and stream to user
+
+
+                  DECODING NODE ⛓
+               Receives complete KVCache
+
+                            ↓
+               Load: CPU DRAM → GPU VRAM
+              Add to continuous batching queue
+
+                            ↓
+Token 1          Token 2               Token 3     ...
+
+
+                            ↓
+                Stream results to USER 👤
+                    Real-time response
+    Scaling up long-context inference
+
+
+
+
+https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/overview.html
+    Scaling beyond single-node
+
+
+
+
+https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/overview.html
+Existing solution: Sequence parallelism
+Existing solution: Sequence parallelism
+Existing solution: Sequence parallelism
+Existing solution: Sequence parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Chunked Pipeline Parallelism
+Mooncake Architecture Overview
+
+
+
+Which instance to go?
+
+
+
+
+Cache load balancing
+
+
+
+
+Decode balancing
+The Scheduling Tension                                                     Addition factor to consider?
+
+
+
+
+ Reordering                             Heterogeneous instances
+
+
+
+
+                                             Network topology
+
+                 Multi-level kv-cache pool
+
+
+    Instance A (local cache)             Instance B (local cache)          Instance B (RDMA transfer)
+   T_queue = 5.0s (3 requests ahead)   T_queue = 0.5s (1 requests ahead)    T_transfer = 2.0s (RDMA, 6 block)
+       T_prefill = 1.0s (2 blocks)         T_prefill = 4.0s (8 blocks)           T_queue + T_prefill = 1.5s
+              TTFT = 6.0s                         TTFT = 4.5s                          TTFT = 3.5s
+The Scheduler Design
+
+       Prefix hashing and matching
+  The Scheduler Design
+
+                        Prefix hashing and matching
+
+   Compute in Parallel
+                            Strategy A (local cache)      Sum of prefill exec time
+
+Manually tuned                                             SLO target
+
+
+                 Prediction model to estimate this time
+The Scheduler Design
+
+                   Prefix hashing and matching
+
+Compute in Parallel
+                        Strategy A (local cache)   Sum of prefill exec time
+
+                                                    SLO target
+
+
+                      Strategy B (Remote fetch)
+
+
+                       Challenging to predict
+            Dynamic network traffic, topology…
+    Mitigation: replicated frequently used cache
+The Scheduler Design
+   Bottleneck? Improvement?
+                                     Prefix hashing and matching
+
+
+       Single point of failure
+
+
+
+      Data access contention
+                                         Strategy A (local cache)
+
+       Threshold sensitivity
+
+
+                                       Strategy B (Remote fetch)
+     Staled instance metadata
+
+
+
+
+                                 SLO Gate and Hot-spot Migration
+Overload-oriented Scheduling
+The Problem: At peak, incoming requests exceeds GPU capacity
+Overload-oriented Scheduling: Problem
+To reject smartly, you need to measure load accurately
+Overload-oriented Scheduling: Problem
+Overload-oriented Scheduling: Solution
+Overload-oriented Scheduling: Solution
+Overload-oriented Scheduling: Solution
+Overload-oriented Scheduling: Conductor
+Overload-oriented Scheduling: Solution
+Overload-oriented Scheduling: Solution
+Evaluation
+Two main questions:
+
+ ●    Does Mooncake outperform existing LLM inference systems in real-world scenarios?
+
+
+
+ ●    Compared to conventional prefix caching methods, does the design of Mooncake Store significantly improve
+      Mooncake performance?
+
+
+
+Central idea: KV Cache-centric disaggregation beats vLLM in goodput.
+Evaluation: Set Up Overview
+Experiment 1: Results
+Experiment 1: Results
+Experiment 1: Results
+Experiment 2: Simulated Data
+Experiment 2: Simulated Data
+Experiment 2: Simulated Data
+Experiment 2: Results
+Experiment 3: Real Workload
+Experiment 3: Results
+Experiment 3: Results
+Experiment 3: Results
+Performance in Overload Scenarios
+                                   Related Work
+                                                                               Scheduling
+Throughput optimization
+                                                                                Orca        SARATHI     FastServe
+FasterTransformer   TensorRT-LLM
+
+
+   Deepspeed                                                                    FlexGen     DistServe   Tetrilnfer
+                      Splitwise
+    Inference
+
+
+
+
+                           KV-Cache Management
+                                    Prompt
+                           vLLM                       SGLang                AttentionSore
+                                    Cache
+
+
+
+
+                                                    Mooncake
+                                        KV-cache centric disaggregated
+                                      arch, building on open-source vLLM,
+                                      Radix-attention closest to Mooncake
+                                           Future work
+                                                             Accelerators
+                                           Computational Power           Memory Bandwidth
+
+                                           Versatile; Not Optimal       Capacity
+
+
+
+
+Process in-memory and Hybrid Bonding                                                                      Disaggregation
+Reducing cost    Memory-bound operations                   Mooncake                         Separate Attention Ops         Throughput
+
+                                                             2.0                              Resource Utilization
+
+
+
+
+                                                        Reduced KV Cache
+                                                  Advanced policies to improve scheduling
+
